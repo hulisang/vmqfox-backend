@@ -1,36 +1,46 @@
 V免签  —— 个人开发者收款解决方案
 ===============
 
-# VMQPHP - ThinkPHP 8 版本
+# VMQPHP - ThinkPHP 8 版本 (RESTful API)
 
-## 项目升级说明
+## 项目重构说明
 
-本项目已从 ThinkPHP 5.1 升级到 ThinkPHP 8.1.2，部分代码重构，主要变更如下：
+本项目已从 ThinkPHP 5.1 升级到 ThinkPHP 8.1.2，并完成了 **RESTful API 重构**，支持前后端分离架构。主要变更如下：
 
 ### 主要变更
 
-1. **目录结构变更**
+1. **RESTful API 重构** ⭐
+   - 完整的 RESTful API 接口设计
+   - 支持前后端分离架构
+   - 统一的 API 响应格式
+   - 完善的路由组织结构 (`/api/*`)
+   - 兼容旧版 API，确保向后兼容
+
+2. **目录结构变更**
    - `application/` → `app/`
+   - 新增 `app/controller/api/` API控制器目录
    - 控制器需要继承 `think\Controller`
    - 视图目录移至 `app/view/`
 
-2. **数据库操作变更**
+3. **数据库操作变更**
    - 使用 `think\facade\Db` 替代 `think\Db`
    - 使用 `think\facade\Request` 替代 `input()` 函数
    - 使用 `think\facade\Session` 替代 `think\facade\Session`
 
-3. **配置变更**
+4. **配置变更**
    - 配置文件格式更新
    - 路由配置移至 `route/app.php`
    - 环境变量支持
+   - 新增 CORS 跨域支持
 
-4. **依赖更新**
+5. **依赖更新**
    - PHP 版本要求：>= 8.0.0
    - ThinkPHP 版本：8.1.2
    - QR码库：endroid/qr-code 4.x
 
 ### 安装和运行
 
+#### 传统部署（单体应用）
 1. **安装依赖**
    ```bash
    composer install
@@ -45,12 +55,18 @@ V免签  —— 个人开发者收款解决方案
    php think run
    ```
 
+#### 前后端分离部署
+本项目支持前后端分离部署，详细说明请参考文档末尾的 **前后端分离部署说明** 章节。
+
 ### 主要功能
 
+- **RESTful API 接口** - 完整的 API 服务
+- **前后端分离支持** - 可独立部署前端和后端
 - 支付订单管理
 - 微信/支付宝二维码支付
 - 后台管理系统
-- API接口
+- 监控端通信接口
+- 跨域支持 (CORS)
 
 ### 注意事项
 
@@ -59,20 +75,25 @@ V免签  —— 个人开发者收款解决方案
 3. 数据库需要创建相应的表结构
 4. 首次运行可能需要导入数据库结构
 
-### 升级完成
+### 重构完成
 
-项目已成功升级到 ThinkPHP 8，保持了原有的功能特性，同时使用了最新的框架特性和安全更新。
+项目已成功升级到 ThinkPHP 8 并完成 RESTful API 重构，支持前后端分离架构。保持了原有的功能特性，同时使用了最新的框架特性和安全更新。
 
+---
 
+## 项目介绍
 
-V免签(PHP) 是基于Thinkphp8 + mysql 实现的一套免签支付程序，主要包含以下特色：
+V免签(PHP) 是基于 ThinkPHP 8 + MySQL 实现的一套免签支付程序，采用 **RESTful API 架构**，支持前后端分离部署。主要包含以下特色：
 
+ + **RESTful API 设计** - 标准化的 API 接口，支持前后端分离
+ + **前后端分离架构** - 后端提供 API 服务，前端可独立部署
  + 收款即时到账，无需进入第三方账户，收款更安全
  + 提供示例代码简单接入
- + 超简单Api使用，提供统一Api实现收款回调
+ + 超简单 API 使用，提供统一 API 实现收款回调
  + 免费、开源，无后门风险
  + 支持监听店员收款信息，可使用支付宝微信小号/模拟器挂机，方便IOS用户
  + 免root，免xp框架，不修改支付宝/微信客户端，防封更安全
+ + **跨域支持** - 内置 CORS 中间件，支持跨域请求
  
 > 如果您不熟悉PHP环境的配置，您可以使用Java版本的服务端（ https://github.com/szvone/Vmq ）
 
@@ -111,9 +132,40 @@ V免签(PHP) 是基于Thinkphp8 + mysql 实现的一套免签支付程序，主�
  > 升级说明：请您直接下载新版本覆盖旧版本即可！
  
  
-## 调用
+## API 调用
+
+### RESTful API 接口
+
+本项目提供完整的 RESTful API 接口，支持以下功能：
+
+**认证 API**
+- `POST /api/auth/login` - 管理员登录
+- `POST /api/auth/logout` - 退出登录
+- `GET /api/user/info` - 获取用户信息
+
+**订单 API**
+- `GET /api/order/list` - 获取订单列表
+- `POST /api/order/create` - 创建订单
+- `GET /api/order/detail/:id` - 获取订单详情
+- `POST /api/order/close/:id` - 关闭订单
+
+**二维码 API**
+- `GET /api/qrcode/list` - 获取二维码列表
+- `POST /api/qrcode/add` - 添加二维码
+- `DELETE /api/qrcode/:id` - 删除二维码
+
+**系统配置 API**
+- `GET /api/config/get` - 获取系统配置
+- `POST /api/config/save` - 保存系统配置
+
+**监控 API**
+- `POST /api/monitor/heart` - 监控端心跳
+- `POST /api/monitor/push` - 监控端推送通知
+
+### 传统调用方式
 
  + 请部署完成后访问后台，有详细的Api说明
+ + 兼容旧版 API 接口，确保向后兼容
  
  
 ## 注意
@@ -176,8 +228,16 @@ V免签(PHP) 是基于Thinkphp8 + mysql 实现的一套免签支付程序，主�
     + 微信店员收款推送通知
            
 ## 更新记录
+  + v2.0（2025.07.11）
+    + **RESTful API 重构** - 完整的 API 接口设计
+    + **前后端分离支持** - 支持独立部署前端和后端
+    + 新增 CORS 跨域支持
+    + 新增专用 API 控制器
+    + 完善的路由组织结构
+    + 兼容旧版 API 接口
+
   + v1.14（2025.07.03）
-    + thinkphp框架升级 
+    + ThinkPHP 框架升级到 8.1.2
  
  + v1.12（2020.01.30）
     + 增加一些提示信息   
