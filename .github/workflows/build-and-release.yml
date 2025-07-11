@@ -37,7 +37,7 @@ jobs:
       #   run: php think test
 
       - name: Create Release Package
-        run: zip -r vmqphp-release.zip . -x ".git/*" ".github/*" "*.zip"
+        run: zip -r vmqfox-backend-release.zip . -x ".git/*" ".github/*" "*.zip"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
