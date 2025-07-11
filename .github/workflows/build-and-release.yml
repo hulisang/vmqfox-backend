@@ -1,0 +1,48 @@
+name: Manual Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '为版本创建一个标签, 例如: v1.0.0'
+        required: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2' # 根据 composer.json 使用兼容的PHP版本
+          extensions: mbstring, zip, pdo, mysql
+          tools: composer:v2
+
+      - name: Cache Composer packages
+        id: composer-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-
+
+      - name: Install Dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist
+
+      # - name: Run Unit Tests
+      #   run: php think test
+
+      - name: Create Release Package
+        run: zip -r vmqphp-release.zip . -x ".git/*" ".github/*" "*.zip"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: vmqphp-release.zip
+          # 此工作流需要一个标签才能创建 Release。
+          # 手动触发时必须提供 tag_name。
+          tag_name: ${{ github.event.inputs.tag_name }} 
