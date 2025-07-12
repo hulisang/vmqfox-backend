@@ -14,6 +14,7 @@ use Endroid\QrCode\ErrorCorrectionLevel\ErrorCorrectionLevelHigh;
 use Endroid\QrCode\Color\Color;
 use Endroid\QrCode\Label\Label;
 use Endroid\QrCode\Logo\Logo;
+use Endroid\QrCode\Encoding\Encoding;
 
 class QrcodeServer
 {
@@ -52,11 +53,14 @@ class QrcodeServer
     public function createQrcode($content) {
         // 检查是否已经缓存过该二维码
         $cacheKey = md5($content);
-        $cacheFile = runtime_path() . 'qrcode/' . $cacheKey . '.png';
-        
+
+        // 获取缓存路径，兼容独立运行和框架运行
+        $runtimePath = function_exists('runtime_path') ? runtime_path() : __DIR__ . '/../../runtime/';
+        $cacheFile = $runtimePath . 'qrcode/' . $cacheKey . '.png';
+
         // 确保缓存目录存在
-        if (!is_dir(runtime_path() . 'qrcode/')) {
-            mkdir(runtime_path() . 'qrcode/', 0777, true);
+        if (!is_dir($runtimePath . 'qrcode/')) {
+            mkdir($runtimePath . 'qrcode/', 0777, true);
         }
         
         // 如果缓存存在，直接返回
@@ -64,13 +68,18 @@ class QrcodeServer
             return 'data:image/png;base64,' . base64_encode(file_get_contents($cacheFile));
         }
         
-        // 创建QR码
-        $qrCode = QrCode::create($content)
-            ->setSize($this->_size)
-            ->setMargin(self::MARGIN)
-            ->setErrorCorrectionLevel(new ErrorCorrectionLevelHigh())
-            ->setForegroundColor(new Color(self::FOREGROUND_COLOR[0], self::FOREGROUND_COLOR[1], self::FOREGROUND_COLOR[2]))
-            ->setBackgroundColor(new Color(self::BACKGROUND_COLOR[0], self::BACKGROUND_COLOR[1], self::BACKGROUND_COLOR[2]));
+        // 创建QR码 - 明确指定编码参数以避免PHP 8+兼容性问题
+        $qrCode = new QrCode(
+            $content,
+            new Encoding($this->_encoding),
+            new ErrorCorrectionLevelHigh(),
+            $this->_size,
+            self::MARGIN
+        );
+
+        // 设置颜色
+        $qrCode->setForegroundColor(new Color(self::FOREGROUND_COLOR[0], self::FOREGROUND_COLOR[1], self::FOREGROUND_COLOR[2]))
+               ->setBackgroundColor(new Color(self::BACKGROUND_COLOR[0], self::BACKGROUND_COLOR[1], self::BACKGROUND_COLOR[2]));
 
         // 是否需要logo
         if ($this->_logo && $this->_logo_url) {
