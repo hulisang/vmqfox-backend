@@ -337,13 +337,13 @@ All rights reserved。
 
 ## 前后端分离部署说明
 
-本项目已完成前后端分离改造，使用ThinkPHP 8作为后端API服务，art-design-pro作为前端UI界面。以下是部署说明：
+本项目已完成前后端分离改造，使用ThinkPHP 8作为后端API服务，vmqfox-frontend作为前端UI界面。以下是部署说明：
 
 ### 后端部署（ThinkPHP 8）
 
 1. **安装依赖**
    ```bash
-   cd vmqphp
+   cd vmqfox-backend
    composer install
    ```
 
@@ -351,95 +351,143 @@ All rights reserved。
    - 复制 `.env.example` 中的配置到 `.env` 并设置好数据库信息
    - 创建数据库将根目录vmq.sql导入
 
-3. **配置Apache/Nginx**
+3. **配置Nginx**
+
+   **完整Nginx配置文件** (`/etc/nginx/sites-available/vmqfox-backend`):
    ```nginx
-   # Nginx配置示例 - 后端API
    server {
        listen 8000;
-       server_name your-domain.com;
-       
-       root /path/to/vmqphp/public;
-       
-       location / {
-           try_files $uri $uri/ /index.php$is_args$args;
-           index index.php;
+       server_name 127.0.0.1;  # 根据实际情况修改
+       index index.php index.html index.htm default.php default.htm default.html;
+
+       # 日志配置
+       access_log /var/log/nginx/vmq-backend-access.log;
+       error_log /var/log/nginx/vmq-backend-error.log;
+
+       # 项目根目录
+       root /path/to/vmqfox-backend/public;  # 修改为实际路径
+
+       # CORS 配置
+       add_header 'Access-Control-Allow-Origin' 'http://前端地址:端口' always;
+       add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+       add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
+       add_header 'Access-Control-Allow-Credentials' 'true' always;
+
+       # 引入伪静态规则
+       include /path/to/vmqfox-backend/nginx-rewrite.conf;  # 伪静态规则文件
+
+       # PHP处理
+       location ~ [^/]\.php(/|$) {
+           fastcgi_pass 127.0.0.1:9000;  # 或 unix:/var/run/php/php8.0-fpm.sock
+           fastcgi_index index.php;
+           include fastcgi_params;
+           set $real_script_name $fastcgi_script_name;
+           if ($fastcgi_script_name ~ "^(.+?\.php)(/.+)$") {
+               set $real_script_name $1;
+               set $path_info $2;
+           }
+           fastcgi_param SCRIPT_FILENAME $document_root$real_script_name;
+           fastcgi_param SCRIPT_NAME $real_script_name;
+           fastcgi_param PATH_INFO $path_info;
        }
-       
-       # PHP解析
-       location ~ \.php$ {
-           fastcgi_pass   127.0.0.1:9000;
-           fastcgi_index  index.php;
-           fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
-           include        fastcgi_params;
-       }
-       
-       # 禁止访问特定文件
-       location ~ /\. {
-           deny all;
+
+       # 禁止访问敏感文件
+       location ~ ^/(\.user.ini|\.htaccess|\.git|\.env|\.svn|\.project|LICENSE|README.md) {
+           return 404;
        }
    }
    ```
 
-### 前端部署（art-design-pro）
-
-1. **安装依赖**
-   ```bash
-   cd art-design-pro
-   pnpm install
-   ```
-
-2. **配置API地址**
-   创建或修改 `.env.local` 文件：
-   ```
-   VITE_VERSION=1.0.0
-   VITE_PORT=3000
-   VITE_BASE_URL=/
-   VITE_API_URL=http://your-api-domain.com:8000
-   VITE_WITH_CREDENTIALS=false
-   ```
-
-3. **构建前端**
-   ```bash
-   pnpm build
-   ```
-
-4. **配置Nginx**
+   **伪静态规则文件** (`nginx-rewrite.conf`):
    ```nginx
-   # Nginx配置示例 - 前端静态文件
-   server {
-       listen 80;
-       server_name your-domain.com;
-       
-       root /path/to/art-design-pro/dist;
-       
-       location / {
-           try_files $uri $uri/ /index.html;
-           index index.html;
+   location / {
+       # 处理OPTIONS预检请求
+       if ($request_method = "OPTIONS") {
+           add_header 'Access-Control-Allow-Origin' 'http://前端地址:端口' always;
+           add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+           add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
+           add_header 'Access-Control-Allow-Credentials' 'true' always;
+           add_header 'Content-Length' 0;
+           add_header 'Content-Type' 'text/plain';
+           return 204;
        }
-       
-       # 配置代理API请求
-       location /api/ {
-           proxy_pass http://your-api-domain.com:8000/api/;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
+       # ThinkPHP伪静态规则
+       if (!-e $request_filename) {
+           rewrite ^(.*)$ /index.php?s=/$1 last;
        }
+   }
+
+   # API路由处理
+   location ~ ^/api/ {
+       if ($request_method = "OPTIONS") {
+           add_header 'Access-Control-Allow-Origin' 'http://前端地址:端口' always;
+           add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+           add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
+           add_header 'Access-Control-Allow-Credentials' 'true' always;
+           add_header 'Content-Length' 0;
+           add_header 'Content-Type' 'text/plain';
+           return 204;
+       }
+       if (!-e $request_filename) {
+           rewrite ^(.*)$ /index.php?s=/$1 last;
+       }
+   }
+
+   # 兼容旧版API
+   location ~ ^/(appHeart|appPush|createOrder|checkOrder|getOrder) {
+       if ($request_method = "OPTIONS") {
+           add_header 'Access-Control-Allow-Origin' 'http://前端地址:端口' always;
+           add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+           add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
+           add_header 'Access-Control-Allow-Credentials' 'true' always;
+           add_header 'Content-Length' 0;
+           add_header 'Content-Type' 'text/plain';
+           return 204;
+       }
+       if (!-e $request_filename) {
+           rewrite ^(.*)$ /index.php?s=/$1 last;
+       }
+   }
+
+   # 二维码访问
+   location /qrcode/ {
+       alias /path/to/vmqfox-backend/runtime/qrcode/;  # 修改为实际路径
+       expires 1d;
+   }
+
+   # 禁止访问敏感目录
+   location ~ ^/(app|config|vendor|runtime)/ {
+       deny all;
+   }
+
+   location ~ /\.(env|git) {
+       deny all;
    }
    ```
 
-### 开发环境配置
-
-1. **启动后端**
+5. **部署步骤**
    ```bash
-   cd vmqphp
-   php think run
-   ```
+   # 1. 复制配置文件到服务器
+   sudo cp nginx.conf /etc/nginx/sites-available/vmq-backend
+   sudo cp nginx-rewrite.conf /path/to/vmqfox-backend/
 
-2. **启动前端**
-   ```bash
-   cd art-design-pro
-   pnpm dev
+   # 2. 修改配置文件中的路径
+   sudo nano /etc/nginx/sites-available/vmq-backend
+   sudo nano /path/to/vmqfox-backend/nginx-rewrite.conf
+
+   # 3. 启用站点
+   sudo ln -s /etc/nginx/sites-available/vmq-backend /etc/nginx/sites-enabled/
+
+   # 4. 测试配置
+   sudo nginx -t
+
+   # 5. 重载Nginx
+   sudo systemctl reload nginx
+
+   # 6. 设置目录权限
+   sudo chown -R www-data:www-data /path/to/vmqfox-backend
+   sudo chmod -R 755 /path/to/vmqfox-backend
+   sudo chmod -R 777 /path/to/vmqfox-backend/runtime
    ```
 
 ### API文档
