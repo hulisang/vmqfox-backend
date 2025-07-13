@@ -5,7 +5,7 @@ V免签  —— 个人开发者收款解决方案
 
 ## 项目重构说明
 
-本项目已从 ThinkPHP 5.1 升级到 ThinkPHP 8.1.2，并完成了 **RESTful API 重构**，支持前后端分离架构。主要变更如下：
+本项目已从 ThinkPHP 5.1 升级到 ThinkPHP 8.1.2，并完成了 **RESTful API 重构**，支持前后端分离架构。[前端地址](https://github.com/hulisang/vmqfox-frontend)主要变更如下：
 
 ### 主要变更
 
