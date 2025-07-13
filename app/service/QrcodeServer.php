@@ -10,7 +10,7 @@ namespace app\service;
 
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
-use Endroid\QrCode\ErrorCorrectionLevel\ErrorCorrectionLevelHigh;
+use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\Color\Color;
 use Endroid\QrCode\Label\Label;
 use Endroid\QrCode\Logo\Logo;
@@ -68,18 +68,16 @@ class QrcodeServer
             return 'data:image/png;base64,' . base64_encode(file_get_contents($cacheFile));
         }
         
-        // 创建QR码 - 明确指定编码参数以避免PHP 8+兼容性问题
+        // 创建QR码 - 使用新版本6.x的API（命名参数）
         $qrCode = new QrCode(
-            $content,
-            new Encoding($this->_encoding),
-            new ErrorCorrectionLevelHigh(),
-            $this->_size,
-            self::MARGIN
+            data: $content,
+            encoding: new Encoding($this->_encoding),
+            errorCorrectionLevel: ErrorCorrectionLevel::High,
+            size: $this->_size,
+            margin: self::MARGIN,
+            foregroundColor: new Color(self::FOREGROUND_COLOR[0], self::FOREGROUND_COLOR[1], self::FOREGROUND_COLOR[2]),
+            backgroundColor: new Color(self::BACKGROUND_COLOR[0], self::BACKGROUND_COLOR[1], self::BACKGROUND_COLOR[2])
         );
-
-        // 设置颜色
-        $qrCode->setForegroundColor(new Color(self::FOREGROUND_COLOR[0], self::FOREGROUND_COLOR[1], self::FOREGROUND_COLOR[2]))
-               ->setBackgroundColor(new Color(self::BACKGROUND_COLOR[0], self::BACKGROUND_COLOR[1], self::BACKGROUND_COLOR[2]));
 
         // 是否需要logo
         if ($this->_logo && $this->_logo_url) {

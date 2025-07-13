@@ -18,7 +18,7 @@
     "require": {
         "php": ">=8.0.0",
         "topthink/framework": "^8.0",
-        "endroid/qr-code": "^4.0",
+        "endroid/qr-code": "^6.0",
         "khanamiryan/qrcode-detector-decoder": "^1.0"
     },
     "autoload": {

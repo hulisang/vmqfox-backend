@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace Endroid\QrCode\Matrix;
 
-use Endroid\QrCode\RoundBlockSizeMode\RoundBlockSizeModeEnlarge;
-use Endroid\QrCode\RoundBlockSizeMode\RoundBlockSizeModeInterface;
-use Endroid\QrCode\RoundBlockSizeMode\RoundBlockSizeModeMargin;
-use Endroid\QrCode\RoundBlockSizeMode\RoundBlockSizeModeShrink;
+use Endroid\QrCode\Exception\BlockSizeTooSmallException;
+use Endroid\QrCode\RoundBlockSizeMode;
 
-final class Matrix implements MatrixInterface
+final readonly class Matrix implements MatrixInterface
 {
     private float $blockSize;
     private int $innerSize;
@@ -22,29 +20,36 @@ final class Matrix implements MatrixInterface
         private array $blockValues,
         int $size,
         int $margin,
-        RoundBlockSizeModeInterface $roundBlockSizeMode
+        RoundBlockSizeMode $roundBlockSizeMode,
     ) {
-        $this->blockSize = $size / $this->getBlockCount();
-        $this->innerSize = $size;
-        $this->outerSize = $size + 2 * $margin;
+        $blockSize = $size / $this->getBlockCount();
+        $innerSize = $size;
+        $outerSize = $size + 2 * $margin;
 
-        if ($roundBlockSizeMode instanceof RoundBlockSizeModeEnlarge) {
-            $this->blockSize = intval(ceil($this->blockSize));
-            $this->innerSize = intval($this->blockSize * $this->getBlockCount());
-            $this->outerSize = $this->innerSize + 2 * $margin;
-        } elseif ($roundBlockSizeMode instanceof RoundBlockSizeModeShrink) {
-            $this->blockSize = intval(floor($this->blockSize));
-            $this->innerSize = intval($this->blockSize * $this->getBlockCount());
-            $this->outerSize = $this->innerSize + 2 * $margin;
-        } elseif ($roundBlockSizeMode instanceof RoundBlockSizeModeMargin) {
-            $this->blockSize = intval(floor($this->blockSize));
-            $this->innerSize = intval($this->blockSize * $this->getBlockCount());
+        switch ($roundBlockSizeMode) {
+            case RoundBlockSizeMode::Enlarge:
+                $blockSize = intval(ceil($blockSize));
+                $innerSize = intval($blockSize * $this->getBlockCount());
+                $outerSize = $innerSize + 2 * $margin;
+                break;
+            case RoundBlockSizeMode::Shrink:
+                $blockSize = intval(floor($blockSize));
+                $innerSize = intval($blockSize * $this->getBlockCount());
+                $outerSize = $innerSize + 2 * $margin;
+                break;
+            case RoundBlockSizeMode::Margin:
+                $blockSize = intval(floor($blockSize));
+                $innerSize = intval($blockSize * $this->getBlockCount());
+                break;
         }
 
-        if ($this->blockSize < 1) {
-            throw new \Exception('Too much data: increase image dimensions or lower error correction level');
+        if ($blockSize < 1) {
+            throw new BlockSizeTooSmallException('Too much data: increase image dimensions or lower error correction level');
         }
 
+        $this->blockSize = $blockSize;
+        $this->innerSize = $innerSize;
+        $this->outerSize = $outerSize;
         $this->marginLeft = intval(($this->outerSize - $this->innerSize) / 2);
         $this->marginRight = $this->outerSize - $this->innerSize - $this->marginLeft;
     }

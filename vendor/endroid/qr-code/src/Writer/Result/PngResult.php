@@ -8,17 +8,21 @@ use Endroid\QrCode\Matrix\MatrixInterface;
 
 final class PngResult extends GdResult
 {
-    private int $quality;
-
-    public function __construct(MatrixInterface $matrix, \GdImage $image, int $quality = -1)
-    {
+    public function __construct(
+        MatrixInterface $matrix,
+        \GdImage $image,
+        private readonly int $quality = -1,
+        private readonly ?int $numberOfColors = null,
+    ) {
         parent::__construct($matrix, $image);
-        $this->quality = $quality;
     }
 
     public function getString(): string
     {
         ob_start();
+        if (null !== $this->numberOfColors) {
+            imagetruecolortopalette($this->image, false, $this->numberOfColors);
+        }
         imagepng($this->image, quality: $this->quality);
 
         return strval(ob_get_clean());

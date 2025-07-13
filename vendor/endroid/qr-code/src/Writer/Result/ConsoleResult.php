@@ -7,7 +7,7 @@ namespace Endroid\QrCode\Writer\Result;
 use Endroid\QrCode\Color\ColorInterface;
 use Endroid\QrCode\Matrix\MatrixInterface;
 
-class ConsoleResult extends AbstractResult
+final class ConsoleResult extends AbstractResult
 {
     private const TWO_BLOCKS = [
         0 => ' ',
@@ -21,7 +21,7 @@ class ConsoleResult extends AbstractResult
     public function __construct(
         MatrixInterface $matrix,
         ColorInterface $foreground,
-        ColorInterface $background
+        ColorInterface $background,
     ) {
         parent::__construct($matrix);
 
