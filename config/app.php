@@ -49,5 +49,5 @@ return [
     // 控制器类名转换规则（用于兼容不同大小写的控制器名）
     'controller_auto_search' => true,
     // 前端应用URL，用于跳转到前端页面
-    'frontend_url'     => env('app.frontend_url', 'http://localhost:3006'),
+    'frontend_url'     => env('APP_FRONTEND_URL', 'http://localhost:3006'),
 ];
