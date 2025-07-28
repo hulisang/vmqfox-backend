@@ -1,0 +1,149 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+vmqfox-api
+vmqfox-api.exe
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Environment variables and configuration files
+.env
+.env.local
+.env.production
+config.yaml
+config.local.yaml
+config.production.yaml
+
+# Log files
+*.log
+logs/
+log/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache directories
+.cache/
+tmp/
+temp/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows specific
+*.lnk
+
+# Linux specific
+*~
+
+# MacOS specific
+.AppleDouble
+.LSOverride
+
+# Coverage reports
+coverage.html
+coverage.out
+coverage.txt
+
+# Profiling data
+*.prof
+*.pprof
+
+# Air live reload tool
+tmp/
+
+# Delve debugger
+__debug_bin
+
+# Build directories
+build/
+dist/
+out/
+
+# Docker files (if you want to ignore them)
+# Dockerfile.local
+# docker-compose.override.yml
+
+# Local development files
+*.local
+.local/
+
+# Backup files
+*.bak
+*.backup
+
+# Archive files
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# Certificate files (if any)
+*.pem
+*.key
+*.crt
+*.p12
+
+# JWT secret files
+jwt.secret
+
+# Database dumps
+*.sql.gz
+*.dump
+
+# Performance test results
+benchmarks/
+*.bench
+
+# Documentation build files
+docs/_build/
+docs/.doctrees/
+
+# Local development scripts
+dev-*
+local-*
+
+# Node.js files (if using any frontend tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python files (if using any Python tools)
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Temporary directories
+temp/
+temporary/ 

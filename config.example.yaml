@@ -1,0 +1,38 @@
+server:
+  port: "8000"
+  mode: "debug"  # debug, release, test
+  read_timeout: "30s"
+  write_timeout: "30s"
+  frontend_url: "http://localhost:3006"
+
+database:
+  driver: "mysql"
+  host: "localhost"
+  port: 3306
+  username: "your_db_username"
+  password: "your_db_password"
+  database: "vmqfox"
+  charset: "utf8mb4"
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: "1h"
+
+jwt:
+  secret: "your-super-secret-jwt-key-please-change-this"
+  access_token_ttl: "2h"
+  refresh_token_ttl: "168h"  # 7 days
+  issuer: "vmqfox"
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""  # Redis密码（如果有的话）
+  db: 0
+
+log:
+  level: "info"
+  filename: "logs/app.log"
+  max_size: 100
+  max_age: 30
+  max_backups: 10
+  compress: true 
