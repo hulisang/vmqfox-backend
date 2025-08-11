@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # V免签Fox前端服务
+  vmqfox-frontend:
+    image: hulisang/vmqfox-frontend:latest
+    container_name: vmqfox-frontend
+    ports:
+      - "3006:80"
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    depends_on:
+      - backend
+    networks:
+      - vmqfox-network
+
+  # V免签Fox后端服务
+  backend:
+    image: hulisang/vmqfox-backend:latest
+    container_name: vmqfox-backend
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - APP_DEBUG=true
+      - APP_TRACE=false
+      - APP_FRONTEND_URL=http://localhost:3006
+      - DB_TYPE=mysql
+      - DB_HOSTNAME=mysql
+      - DB_DATABASE=vmq
+      - DB_USERNAME=root
+      - DB_PASSWORD=vmqfox123
+      - DB_HOSTPORT=3306
+      - DB_CHARSET=utf8
+      - DB_PREFIX=
+      - DB_DEBUG=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_SELECT=0
+      - CACHE_DRIVER=file
+      - SESSION_DRIVER=file
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - vmqfox-network
+
+  # MySQL数据库服务
+  mysql:
+    image: mysql:5.7
+    container_name: vmqfox-mysql
+    ports:
+      - "3306:3306"
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=vmqfox123
+      - MYSQL_DATABASE=vmq
+      - MYSQL_USER=vmqfox
+      - MYSQL_PASSWORD=vmqfox123
+      - TZ=Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./vmq.sql:/docker-entrypoint-initdb.d/vmq.sql:ro
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pvmqfox123"]
+      timeout: 20s
+      retries: 10
+      interval: 10s
+    networks:
+      - vmqfox-network
+
+  # Redis缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: vmqfox-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 3s
+      retries: 5
+      interval: 5s
+    networks:
+      - vmqfox-network
+
+
+# 数据卷
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# 网络配置
+networks:
+  vmqfox-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
