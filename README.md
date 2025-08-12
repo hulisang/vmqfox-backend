@@ -58,11 +58,11 @@ V免签  —— 个人开发者收款解决方案
 #### 前后端分离部署
 本项目支持前后端分离部署，详细说明请参考文档末尾的 **前后端分离部署说明** 章节。
 支持docker一键部署
-'''bash
+```bash
 https://github.com/hulisang/vmqfox-backend.git
 cd vmqfox-backend
 docker compose up -d
-'''
+```
 访问http://前端地址:3006管理后台，端口暴露3006:80可以自行修改docker-compose.yml，修改后端地址需要同步修改前端vite.config.ts文件第32行第37行端口
 
 ### 主要功能
