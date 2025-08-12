@@ -1,11 +1,11 @@
 -- phpMyAdmin SQL Dump
--- version 4.8.4
+-- version 4.8.5
 -- https://www.phpmyadmin.net/
 --
 -- 主机： localhost
--- 生成日期： 2019-04-18 07:09:14
--- 服务器版本： 5.5.53
--- PHP 版本： 5.6.27
+-- 生成日期： 2025-08-12 23:20:25
+-- 服务器版本： 5.7.26
+-- PHP 版本： 7.3.4
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 SET AUTOCOMMIT = 0;
@@ -56,7 +56,8 @@ CREATE TABLE `pay_qrcode` (
   `id` bigint(20) NOT NULL,
   `pay_url` varchar(255) DEFAULT NULL,
   `price` double NOT NULL,
-  `type` int(11) NOT NULL
+  `type` int(11) NOT NULL,
+  `state` int(11) NOT NULL DEFAULT '0' COMMENT '状态：0启用，1禁用'
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
 -- --------------------------------------------------------
@@ -97,7 +98,6 @@ INSERT INTO `setting` (`vkey`, `vvalue`) VALUES
 CREATE TABLE `tmp_price` (
   `price` varchar(255) NOT NULL,
   `oid` varchar(255) NOT NULL
-
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
 --
@@ -136,7 +136,7 @@ ALTER TABLE `tmp_price`
 -- 使用表AUTO_INCREMENT `pay_order`
 --
 ALTER TABLE `pay_order`
-  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- 使用表AUTO_INCREMENT `pay_qrcode`
