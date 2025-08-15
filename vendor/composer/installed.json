@@ -112,17 +112,17 @@
                 },
                 {
                         "name": "endroid/qr-code",
-                        "version": "6.0.8",
-                        "version_normalized": "6.0.8.0",
+                        "version": "6.0.9",
+                        "version_normalized": "6.0.9.0",
                         "source": {
                                 "type": "git",
                                 "url": "https://github.com/endroid/qr-code.git",
-                                "reference": "8102273afbcd5e3d95f1faaab2c5aa31e3637f61"
+                                "reference": "21e888e8597440b2205e2e5c484b6c8e556bcd1a"
                         },
                         "dist": {
                                 "type": "zip",
-                                "url": "https://api.github.com/repos/endroid/qr-code/zipball/8102273afbcd5e3d95f1faaab2c5aa31e3637f61",
-                                "reference": "8102273afbcd5e3d95f1faaab2c5aa31e3637f61",
+                                "url": "https://api.github.com/repos/endroid/qr-code/zipball/21e888e8597440b2205e2e5c484b6c8e556bcd1a",
+                                "reference": "21e888e8597440b2205e2e5c484b6c8e556bcd1a",
                                 "shasum": ""
                         },
                         "require": {
@@ -141,7 +141,7 @@
                                 "roave/security-advisories": "Makes sure package versions with known security issues are not installed",
                                 "setasign/fpdf": "Enables you to use the PDF writer"
                         },
-                        "time": "2025-05-10T14:28:45+00:00",
+                        "time": "2025-07-13T19:59:45+00:00",
                         "type": "library",
                         "extra": {
                                 "branch-alias": {
@@ -175,7 +175,7 @@
                         ],
                         "support": {
                                 "issues": "https://github.com/endroid/qr-code/issues",
-                                "source": "https://github.com/endroid/qr-code/tree/6.0.8"
+                                "source": "https://github.com/endroid/qr-code/tree/6.0.9"
                         },
                         "funding": [
                                 {
@@ -466,17 +466,17 @@
                 },
                 {
                         "name": "topthink/framework",
-                        "version": "v8.1.2",
-                        "version_normalized": "8.1.2.0",
+                        "version": "v8.1.3",
+                        "version_normalized": "8.1.3.0",
                         "source": {
                                 "type": "git",
                                 "url": "https://github.com/top-think/framework.git",
-                                "reference": "8faec5c9b7a7f2a66ca3140a57e81bd6cd37567c"
+                                "reference": "e4207e98b66f92d26097ed6efd535930cba90e8f"
                         },
                         "dist": {
                                 "type": "zip",
-                                "url": "https://api.github.com/repos/top-think/framework/zipball/8faec5c9b7a7f2a66ca3140a57e81bd6cd37567c",
-                                "reference": "8faec5c9b7a7f2a66ca3140a57e81bd6cd37567c",
+                                "url": "https://api.github.com/repos/top-think/framework/zipball/e4207e98b66f92d26097ed6efd535930cba90e8f",
+                                "reference": "e4207e98b66f92d26097ed6efd535930cba90e8f",
                                 "shasum": ""
                         },
                         "require": {
@@ -498,7 +498,7 @@
                                 "mockery/mockery": "^1.2",
                                 "phpunit/phpunit": "^9.5"
                         },
-                        "time": "2025-01-14T08:04:03+00:00",
+                        "time": "2025-07-14T03:48:44+00:00",
                         "type": "library",
                         "installation-source": "dist",
                         "autoload": {
@@ -530,7 +530,7 @@
                         ],
                         "support": {
                                 "issues": "https://github.com/top-think/framework/issues",
-                                "source": "https://github.com/top-think/framework/tree/v8.1.2"
+                                "source": "https://github.com/top-think/framework/tree/v8.1.3"
                         },
                         "install-path": "../topthink/framework"
                 },
@@ -634,17 +634,17 @@
                 },
                 {
                         "name": "topthink/think-orm",
-                        "version": "v4.0.46",
-                        "version_normalized": "4.0.46.0",
+                        "version": "v4.0.49",
+                        "version_normalized": "4.0.49.0",
                         "source": {
                                 "type": "git",
                                 "url": "https://github.com/top-think/think-orm.git",
-                                "reference": "4bb0a5679a97db8de1c0eb02bbbe179cb3afd901"
+                                "reference": "b04d227fefc7dbfd611f4b5e66975eee4791bba4"
                         },
                         "dist": {
                                 "type": "zip",
-                                "url": "https://api.github.com/repos/top-think/think-orm/zipball/4bb0a5679a97db8de1c0eb02bbbe179cb3afd901",
-                                "reference": "4bb0a5679a97db8de1c0eb02bbbe179cb3afd901",
+                                "url": "https://api.github.com/repos/top-think/think-orm/zipball/b04d227fefc7dbfd611f4b5e66975eee4791bba4",
+                                "reference": "b04d227fefc7dbfd611f4b5e66975eee4791bba4",
                                 "shasum": ""
                         },
                         "require": {
@@ -652,7 +652,7 @@
                                 "ext-pdo": "*",
                                 "php": ">=8.0.0",
                                 "psr/log": ">=1.0",
-                                "psr/simple-cache": ">=1.0",
+                                "psr/simple-cache": "^3.0",
                                 "topthink/think-helper": "^3.1",
                                 "topthink/think-validate": "^3.0"
                         },
@@ -662,7 +662,7 @@
                         "suggest": {
                                 "ext-mongodb": "provide mongodb support"
                         },
-                        "time": "2025-06-26T06:05:35+00:00",
+                        "time": "2025-08-10T14:08:31+00:00",
                         "type": "library",
                         "installation-source": "dist",
                         "autoload": {
@@ -691,7 +691,7 @@
                         ],
                         "support": {
                                 "issues": "https://github.com/top-think/think-orm/issues",
-                                "source": "https://github.com/top-think/think-orm/tree/v4.0.46"
+                                "source": "https://github.com/top-think/think-orm/tree/v4.0.49"
                         },
                         "install-path": "../topthink/think-orm"
                 },

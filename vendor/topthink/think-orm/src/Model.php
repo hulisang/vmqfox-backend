@@ -205,7 +205,7 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
         self::$weakMap[$this][$name] = $value;
         if (property_exists($this, $name)) {
             $this->$name = $value;
-        }        
+        }
         return $this;
     }
 
@@ -240,10 +240,11 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
      * 创建新的模型实例.
      *
      * @param array|object $data
+     * @param array $options
      *
      * @return Model|Entity
      */
-    public function newInstance(array | object $data = [])
+    public function newInstance(array | object $data = [], array $options = [])
     {
         $model = new static($data);
         if (!empty($data)) {
@@ -252,10 +253,10 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
 
         if ($this->getEntity()) {
             // 存在对应实体模型实例
-            return $this->getEntity()->newInstance($model);
+            return $this->getEntity()->newInstance($model, $options);
         }
 
-        return $this->fetchModel($model);
+        return $this->fetchModel($model, $options);
     }
 
     /**
@@ -277,13 +278,11 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
      *
      * @return Modelable
      */
-    protected function fetchModel(Model $model): Modelable
+    protected function fetchModel(Model $model, array $options = []): Modelable
     {
         $class = $model->getOption('entityClass', str_replace('\\model\\', '\\entity\\', static::class));
         if (class_exists($class) && is_subclass_of($class, Entity::class)) {
-            $entity = new $class($model);
-            $model->entity($entity);
-            return $entity;
+            return new $class($model, $options);
         }
         return $model;
     }
@@ -632,7 +631,7 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
         $model  = new static();
         if (!empty($suffix)) {
             $model->setSuffix($suffix);
-        }        
+        }
         $model->allowField($allowField)->exists(true)->save($data, $where, $refresh);
         return $model->fetchModel($model);
     }
@@ -642,13 +641,16 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
      *
      * @param mixed $data  主键列表 支持闭包查询条件
      * @param bool  $force 是否强制删除
+     * @param array $together 关联删除
      *
      * @return bool
      */
-    public static function destroy($data, bool $force = false): bool
+    public static function destroy($data, bool $force = false, array $together = []): bool
     {
-        $model = new static();
-        $db    = $model->db();
+        if (empty($data) && 0 !== $data) {
+            return false;
+        }        
+        $db = (new static())->db();
 
         if (is_array($data) && key($data) !== 0) {
             $db->where($data);
@@ -661,7 +663,7 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
         $resultSet = $db->select((array) $data);
 
         foreach ($resultSet as $result) {
-            $result->force($force)->delete();
+            $result->force($force)->together($together)->delete();
         }
         return true;
     }

@@ -954,16 +954,22 @@ abstract class PDOConnection extends Connection
      * 使用游标查询记录.
      *
      * @param BaseQuery $query 查询对象
+     * @param bool $unbuffered 是否开启无缓冲查询（仅限mysql）
      *
      * @return \Generator
      */
-    public function cursor(BaseQuery $query)
+    public function cursor(BaseQuery $query, bool $unbuffered = false)
     {
         // 分析查询表达式
         $options = $query->parseOptions();
 
         // 生成查询SQL
         $sql = $this->builder->select($query);
+        
+        // 检查是否需要无缓冲查询（仅对MySQL且支持该方法时生效）
+        if ($unbuffered && method_exists($this, 'cursorUnbuffered')) {
+            return $this->cursorUnbuffered($query, $sql);
+        }
 
         // 执行查询操作
         return $this->getCursor($query, $sql, $query->getModel());

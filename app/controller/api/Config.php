@@ -102,15 +102,28 @@ class Config extends BaseController
             ->where("state", ">=", 1)
             ->sum("price");
             
-        // 监控状态
+        // 监控状态 - 实时计算并更新数据库
         $monitorStatus = 0; // 0-未知 1-正常 2-异常
         $heartTime = intval($lastheart['vvalue']);
-        
+
         if ($heartTime > 0) {
             if (time() - $heartTime < 180) {
                 $monitorStatus = 1;
+                // 如果监控端正常，确保数据库状态为1
+                if ($jkstate['vvalue'] != '1') {
+                    Db::name("setting")->where("vkey", "jkstate")->update(["vvalue" => "1"]);
+                }
             } else {
                 $monitorStatus = 2;
+                // 如果监控端异常，更新数据库状态为0
+                if ($jkstate['vvalue'] != '0') {
+                    Db::name("setting")->where("vkey", "jkstate")->update(["vvalue" => "0"]);
+                }
+            }
+        } else {
+            // 如果没有心跳记录，设置为未绑定状态
+            if ($jkstate['vvalue'] != '-1') {
+                Db::name("setting")->where("vkey", "jkstate")->update(["vvalue" => "-1"]);
             }
         }
         

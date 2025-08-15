@@ -31,21 +31,24 @@ abstract class View extends Entity
      * 架构函数.
      *
      * @param Model $model 模型连接对象
+     * @param array $options
      */
-    public function __construct(?Model $model = null)
+    public function __construct(?Model $model = null, array $options = [])
     {
         parent::__construct($model);
 
+        $with = !empty($options['with']) ? true : false;
         // 初始化模型数据
-        $this->initData();
+        $this->initData($with);
     }
 
     /**
      * 初始化实体数据属性.
+     * @param bool $with 是否包含预载入关联查询
      *
      * @return void
      */
-    protected function initData()
+    protected function initData(bool $with = false)
     {
         // 获取属性映射关系
         $properties = $this->getEntityPropertiesMap();
@@ -56,13 +59,13 @@ abstract class View extends Entity
         foreach ($properties as $key => $field) {
             if (is_int($key)) {
                 // 主模型同名属性
-                $this->$field = $this->fetchViewAttr($field, $data);
+                $this->$field = $this->fetchViewAttr($field, $data, $with);
             } elseif (strpos($field, '->')) {
                 // 关联属性或JSON字段映射
                 $this->$key = $this->getRelationMapAttr($field, $data);
             } else {
                 // 主模型属性映射
-                $this->$key = $this->fetchViewAttr($field, $data);
+                $this->$key = $this->fetchViewAttr($field, $data, $with);
             }
         }
         // 标记数据存在
@@ -99,14 +102,15 @@ abstract class View extends Entity
      *
      * @param string $field 视图属性
      * @param array  $data  模型数据
+     * @param bool   $with  是否包含关联查询
      *
      * @return mixed
      */
-    private function fetchViewAttr(string $field, array $data)
+    private function fetchViewAttr(string $field, array $data, bool $with = false)
     {
         $method = 'get' . Str::camel($field) . 'Attr';
         $model  = $this->model();
-        if (method_exists($this, $method)) {
+        if (!$with && method_exists($this, $method)) {
             // 视图获取器
             $value = $this->$method($model); 
         } elseif ($model->hasData($field)) {
@@ -133,7 +137,7 @@ abstract class View extends Entity
         if ($relations) {
             $mapping   = $this->getOption('viewMapping', []);
             foreach ($relations as $relation) {
-                if (isset($data[$relation]) && $this->model()->$relation->hasData($field)) {
+                if (isset($data[$relation]) && $data[$relation] instanceof Model && $this->model()->$relation->hasData($field)) {
                     $value = $this->model()->$relation->$field;
                     if (!isset($mapping[$field])) {
                         $mapping[$field] = $relation . '->' . $field;
@@ -259,7 +263,7 @@ abstract class View extends Entity
         }
 
         foreach ($this->getEntityProperties() as $field) {
-            $this->$field = $data[$field] ?? null;
+            $this->$field = $data[$field] ?? ($this->$field ?? null);
         }
 
         // 验证数据
@@ -338,12 +342,14 @@ abstract class View extends Entity
      *  设置模型.
      *
      * @param Model $model 模型对象
+     * @param array $options 查询参数
      * @return $this
      */
-    public function setModel(Model $model)
+    public function setModel(Model $model, array $options = [])
     {
         parent::setModel($model);
-        $this->initData();
+        $with = !empty($options['with']) ? true : false;
+        $this->initData($with);
         return $this;
     }
 
@@ -406,6 +412,7 @@ abstract class View extends Entity
     {
         // 获取属性映射
         $properties = $this->getEntityPropertiesMap();
+        $relations  = $this->getOption('autoMapping', []);
         $data       = $this->getData();
         $item       = [];
         $together   = [];
@@ -430,6 +437,14 @@ abstract class View extends Entity
                         // 新增关联
                         $array[$relation][$field] = $data[$key];
                     }
+                }
+            } elseif (is_string($key) && in_array($field, $relations)) {
+                $together[] = $field;
+                // 关联数据赋值
+                if ($this->model()->hasData($field)) {
+                    $this->model()->$field = $data[$key];
+                } else {
+                    $array[$field] = $data[$key];
                 }
             } else {
                 $value =  $data[is_int($key) ? $field : $key];
