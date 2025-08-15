@@ -158,7 +158,7 @@ class Monitor extends BaseController
                     $notifyUrl = $notifyUrl."&".$p;
                 }
                 
-                $re = $this->postCurl($notifyUrl, []); // 发送请求
+                $re = $this->getCurl($notifyUrl); // 发送GET请求
                 
                 // 如果通知失败，则更新订单状态为2
                 if ($re != "success") {
@@ -353,6 +353,24 @@ class Monitor extends BaseController
         return true;
     }
     
+    /**
+     * 发送GET请求
+     * @param string $url 请求URL
+     * @return string 响应结果
+     */
+    private function getCurl($url)
+    {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        $result = curl_exec($ch);
+        curl_close($ch);
+        return $result;
+    }
+
     /**
      * 发送POST请求
      * @param string $url 请求URL
