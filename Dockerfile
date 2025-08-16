@@ -26,12 +26,17 @@ RUN set -eux; \
       tzdata \
       libzip-dev \
       oniguruma-dev \
-      icu-data-full icu-libs; \
+      icu-data-full icu-libs \
+      freetype-dev \
+      libjpeg-turbo-dev \
+      libpng-dev; \
+    docker-php-ext-configure gd --with-freetype --with-jpeg; \
     docker-php-ext-install \
       pdo_mysql \
       mbstring \
       zip \
-      bcmath; \
+      bcmath \
+      gd; \
     # Configure timezone
     ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && echo ${TZ} > /etc/timezone
 
