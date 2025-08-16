@@ -30,7 +30,8 @@ RUN set -eux; \
     docker-php-ext-install \
       pdo_mysql \
       mbstring \
-      zip; \
+      zip \
+      bcmath; \
     # Configure timezone
     ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && echo ${TZ} > /etc/timezone
 
@@ -46,7 +47,8 @@ COPY --from=vendor /app/vendor ./vendor
 
 # Add entrypoint to generate .env from environment variables
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Fix line endings and set executable permissions
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Ensure runtime/cache directories are writable (ThinkPHP uses runtime/)
 RUN set -eux; \
