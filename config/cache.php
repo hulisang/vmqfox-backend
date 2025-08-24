@@ -33,6 +33,28 @@ return [
             // 序列化机制
             'serialize'  => [],
         ],
+        'redis' => [
+            // 驱动方式
+            'type'       => 'Redis',
+            // Redis主机
+            'host'       => env('redis.host', '127.0.0.1'),
+            // Redis端口
+            'port'       => env('redis.port', 6379),
+            // Redis密码
+            'password'   => env('redis.password', ''),
+            // Redis库编号
+            'select'     => env('redis.select', 0),
+            // 连接超时时间
+            'timeout'    => 0,
+            // 缓存前缀
+            'prefix'     => '',
+            // 缓存有效期 0表示永久缓存
+            'expire'     => 0,
+            // 缓存标签前缀
+            'tag_prefix' => 'tag:',
+            // 序列化机制
+            'serialize'  => [],
+        ],
         // 更多的缓存连接
     ],
 ];
