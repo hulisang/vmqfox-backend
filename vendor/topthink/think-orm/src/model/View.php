@@ -727,6 +727,11 @@ abstract class View extends Entity
     {
         $entity = new static();
         $model  = $entity->model();
+
+        if ('suffix' == $method) {
+            $model->setSuffix($args[0]);
+        }
+
         if (in_array($method, ['destroy'])) {
             $db = $model;
         } else {

@@ -634,17 +634,17 @@
                 },
                 {
                         "name": "topthink/think-orm",
-                        "version": "v4.0.49",
-                        "version_normalized": "4.0.49.0",
+                        "version": "v4.0.50",
+                        "version_normalized": "4.0.50.0",
                         "source": {
                                 "type": "git",
                                 "url": "https://github.com/top-think/think-orm.git",
-                                "reference": "b04d227fefc7dbfd611f4b5e66975eee4791bba4"
+                                "reference": "ddae72d5ff4d953d3d8cc526fd9c50e8862ce2cc"
                         },
                         "dist": {
                                 "type": "zip",
-                                "url": "https://api.github.com/repos/top-think/think-orm/zipball/b04d227fefc7dbfd611f4b5e66975eee4791bba4",
-                                "reference": "b04d227fefc7dbfd611f4b5e66975eee4791bba4",
+                                "url": "https://api.github.com/repos/top-think/think-orm/zipball/ddae72d5ff4d953d3d8cc526fd9c50e8862ce2cc",
+                                "reference": "ddae72d5ff4d953d3d8cc526fd9c50e8862ce2cc",
                                 "shasum": ""
                         },
                         "require": {
@@ -662,7 +662,7 @@
                         "suggest": {
                                 "ext-mongodb": "provide mongodb support"
                         },
-                        "time": "2025-08-10T14:08:31+00:00",
+                        "time": "2025-08-26T05:32:22+00:00",
                         "type": "library",
                         "installation-source": "dist",
                         "autoload": {
@@ -691,7 +691,7 @@
                         ],
                         "support": {
                                 "issues": "https://github.com/top-think/think-orm/issues",
-                                "source": "https://github.com/top-think/think-orm/tree/v4.0.49"
+                                "source": "https://github.com/top-think/think-orm/tree/v4.0.50"
                         },
                         "install-path": "../topthink/think-orm"
                 },

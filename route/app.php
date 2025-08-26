@@ -44,7 +44,6 @@ Route::group('api', function () {
     // 二维码相关
     Route::get('qrcode/list', 'api/Qrcode/list');
     Route::post('qrcode/add', 'api/Qrcode/add');
-    Route::delete('qrcode/:id', 'api/Qrcode/delete');
     Route::post('qrcode/parse', 'api/Qrcode/parse');
     Route::get('qrcode/wechat', 'api/Qrcode/wechat');
     Route::get('qrcode/alipay', 'api/Qrcode/alipay');
@@ -54,6 +53,7 @@ Route::group('api', function () {
     Route::delete('qrcode/alipay/:id', 'api/Qrcode/deleteAlipay');
     Route::post('qrcode/bind/:id', 'api/Qrcode/bind');
     Route::get('qrcode/generate', 'api/Qrcode/generate');
+    Route::delete('qrcode/:id', 'api/Qrcode/delete');
     
     // 系统配置
     Route::get('config/get', 'api/Config/get');

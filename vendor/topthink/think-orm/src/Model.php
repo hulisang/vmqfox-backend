@@ -109,7 +109,7 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
     public function __construct(array | object $data = [])
     {
         // 获取实体模型参数
-        $options = $this->getOptions();
+        $options = array_merge($this->getBaseOptions(), $this->getOptions());
 
         if (!self::$weakMap) {
             self::$weakMap = new WeakMap;
@@ -169,6 +169,16 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
      */
     protected function init()
     {}
+
+    /**
+     * 定义基础配置参数.
+     *
+     * @return array
+     */
+    protected function getBaseOptions(): array
+    {
+        return [];
+    }
 
     /**
      * 在实体模型中定义 返回相关配置参数.
