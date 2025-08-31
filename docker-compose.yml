@@ -8,19 +8,33 @@ services:
     ports:
       - "3006:80"
     restart: unless-stopped
-    environment:
-      - TZ=Asia/Shanghai
     depends_on:
       - backend
     networks:
       - vmqfox-network
 
-  # V免签Fox后端服务
+  # Nginx 服务 (Web服务器 & 反向代理)
   backend:
-    image: hulisang/vmqfox-backend:latest
-    container_name: vmqfox-backend
+    image: nginx:1.27-alpine
+    container_name: vmqfox-backend-nginx
     ports:
-      - "8000:8000"
+      - "8000:8000" # 将宿主机的8000端口映射到容器的80端口
+    volumes:
+      # 挂载项目代码以提供静态文件服务
+      - ./:/var/www/html
+      # 挂载自定义的Nginx配置文件
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/nginx/http_upgrade_map.conf:/etc/nginx/conf.d/http_upgrade_map.conf:ro
+    depends_on:
+      - vmqfox-backend
+    restart: unless-stopped
+    networks:
+      - vmqfox-network
+
+  # V免签Fox后端PHP-FPM服务 (应用服务)
+  vmqfox-backend:
+    image: hulisang/vmqfox-backend:dev
+    container_name: vmqfox-backend
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
@@ -40,16 +54,18 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=
       - REDIS_SELECT=0
-      - CACHE_DRIVER=file
-      - SESSION_DRIVER=file
+      - CACHE_DRIVER=redis # 推荐在容器环境中使用redis
+      - SESSION_DRIVER=redis # 推荐在容器环境中使用redis
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_started
+    volumes:
+      # 挂载代码以方便开发时实时修改
+      - ./:/var/www/html
     networks:
       - vmqfox-network
-
   # MySQL数据库服务
   mysql:
     image: mysql:5.7

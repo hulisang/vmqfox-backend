@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for vmqfox-backend (ThinkPHP)
-# Based on CI config: PHP 8.2 with extensions: mbstring, zip, pdo_mysql
+# Optimized per bt.md: PHP 8.2 with required extensions and PHP settings
 
 # --- Stage 1: Composer dependencies ---
 FROM composer:2 AS vendor
@@ -20,23 +20,38 @@ FROM php:8.2-fpm-alpine AS runtime
 ARG TZ=Asia/Shanghai
 ENV TZ=${TZ}
 
-# Install required system libs and PHP extensions
+# Install required system libs and PHP extensions (align with bt.md)
 RUN set -eux; \
+    # base packages + build deps
     apk add --no-cache \
       tzdata \
-      libzip-dev \
+      libzip-dev zlib-dev \
       oniguruma-dev \
-      icu-data-full icu-libs \
+      libxml2-dev \
+      curl-dev \
       freetype-dev \
       libjpeg-turbo-dev \
-      libpng-dev; \
+      libpng-dev \
+      bash; \
+    apk add --no-cache --virtual .build-deps $PHPIZE_DEPS build-base; \
+    # gd
     docker-php-ext-configure gd --with-freetype --with-jpeg; \
-    docker-php-ext-install \
+    # core extensions
+    docker-php-ext-install -j"$(nproc)" \
       pdo_mysql \
+      mysqli \
       mbstring \
       zip \
       bcmath \
-      gd; \
+      gd \
+      curl \
+      xml \
+      opcache; \
+    # redis via pecl
+    pecl install redis && docker-php-ext-enable redis; \
+    # cleanup build deps
+    apk del .build-deps; \
+    rm -rf /tmp/pear; \
     # Configure timezone
     ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && echo ${TZ} > /etc/timezone
 
@@ -46,25 +61,45 @@ RUN addgroup -g 1000 www && adduser -D -G www -u 1000 www
 WORKDIR /var/www/html
 
 # Copy application code
-COPY . .
-# Copy vendor from the builder stage
+# Copy vendor from the builder stage first for better layer caching
 COPY --from=vendor /app/vendor ./vendor
+# Copy application code
+COPY . .
+
+# PHP configuration aligned with bt.md recommendations
+# Also setting up directory permissions in the same layer
+RUN set -eux; \
+    { \
+        echo "memory_limit=256M"; \
+        echo "max_execution_time=300"; \
+        echo "post_max_size=50M"; \
+        echo "upload_max_filesize=50M"; \
+        echo "date.timezone=${TZ}"; \
+    } > /usr/local/etc/php/conf.d/vmqfox.ini; \
+    { \
+        echo "opcache.enable=1"; \
+        echo "opcache.validate_timestamps=1"; \
+        echo "opcache.memory_consumption=128"; \
+        echo "opcache.interned_strings_buffer=16"; \
+        echo "opcache.max_accelerated_files=10000"; \
+        echo "opcache.revalidate_freq=2"; \
+    } > /usr/local/etc/php/conf.d/opcache.ini; \
+    # Ensure runtime/cache directories exist and are writable
+    mkdir -p runtime public/qr-code; \
+    chown -R www:www /var/www/html; \
+    chmod -R 777 runtime public/qr-code
 
 # Add entrypoint to generate .env from environment variables
 COPY entrypoint.sh /entrypoint.sh
 # Fix line endings and set executable permissions
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
-# Ensure runtime/cache directories are writable (ThinkPHP uses runtime/)
-RUN set -eux; \
-    mkdir -p runtime && \
-    chown -R www:www /var/www/html
-
 USER www
 
-# Expose ThinkPHP built-in server port
-EXPOSE 8000
+# Expose PHP-FPM port
+EXPOSE 9000
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["php", "think", "run"]
+# The main command to run PHP-FPM service. This will be executed by the entrypoint script.
+CMD ["php-fpm"]
 
