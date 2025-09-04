@@ -26,8 +26,8 @@ jobs:
         name: Build and push
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: Dockerfile
+          context: ./vmqfox-backend
+          file: ./vmqfox-backend/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/vmqfox-backend:dev
