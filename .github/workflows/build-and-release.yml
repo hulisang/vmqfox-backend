@@ -1,11 +1,19 @@
-name: Manual Build and Release
+name: Build and release Go backend
 
 on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: '为版本创建一个标签, 例如: v1.0.0'
+        description: "为版本创建一个标签，例如 v1.0.0"
         required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.26.5"
+  GOFLAGS: "-mod=mod"
 
 jobs:
   build-and-release:
@@ -14,35 +22,29 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          php-version: '8.2' # 根据 composer.json 使用兼容的PHP版本
-          extensions: mbstring, zip, pdo, mysql
-          tools: composer:v2
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-      - name: Cache Composer packages
-        id: composer-cache
-        uses: actions/cache@v4
-        with:
-          path: vendor
-          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-php-
+      - name: Resolve Go modules
+        run: go mod download
 
-      - name: Install Dependencies
-        run: composer install --no-dev --no-interaction --prefer-dist
-
-      # - name: Run Unit Tests
-      #   run: php think test
-
-      - name: Create Release Package
-        run: zip -r vmqfox-backend-release.zip . -x ".git/*" ".github/*" "*.zip"
+      - name: Build Linux binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "dist/vmqfox-api-linux-$arch" ./cmd/vmqfox-api
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "dist/vmqfox-password-linux-$arch" ./cmd/vmqfox-password
+          done
+          cp database/schema.sql env.example dist/
+          tar -czf "vmqfox-backend-${{ inputs.tag_name }}.tar.gz" -C dist .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: vmqfox-backend-release.zip
-          # 此工作流需要一个标签才能创建 Release。
-          # 手动触发时必须提供 tag_name。
-          tag_name: ${{ github.event.inputs.tag_name }} 
+          tag_name: ${{ inputs.tag_name }}
+          files: vmqfox-backend-${{ inputs.tag_name }}.tar.gz

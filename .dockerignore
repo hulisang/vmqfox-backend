@@ -1,0 +1,21 @@
+# Go-only 后端镜像上下文。历史 PHP 资源保留在仓库中作为协议参考，
+# 但不会进入镜像构建上下文。
+.git
+.github
+.sanshu-memory
+vendor
+.env
+*.log
+*.sql
+*.bak
+*.backup
+app
+config
+public
+route
+docker-compose.yml
+.travis.yml
+composer.json
+composer.lock
+composer.phar
+think

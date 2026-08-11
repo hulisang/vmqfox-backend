@@ -4,3 +4,5 @@
 *.log
 /runtime
 .env
+.sanshu-memory/
+/vmqfox-api
