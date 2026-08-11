@@ -22,4 +22,3 @@ script:
   - export PATH="/usr/local/go/bin:$PATH"
   - go mod download
   - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" ./cmd/vmqfox-api
-  - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" ./cmd/vmqfox-password

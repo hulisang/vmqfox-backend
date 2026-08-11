@@ -590,6 +590,36 @@ func (s *OrderService) DeleteLast(ctx context.Context, olderThan time.Duration) 
 	return count, err
 }
 
+func (s *OrderService) DeleteExpired(ctx context.Context) (int64, error) {
+	now := s.clock.Now()
+	var count int64
+	err := s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
+		rawCloseMinutes, err := s.settings.Get(txCtx, setting.CloseMinutesKey)
+		if err != nil && !errors.Is(err, port.ErrNotFound) {
+			return wrap(CodeDependency, "读取订单超时设置失败", err)
+		}
+		cutoff := now.Add(-time.Duration(closeMinutes(rawCloseMinutes)) * time.Minute)
+
+		expiredPending, err := s.orders.FindExpiredPendingForUpdate(txCtx, cutoff, 1000)
+		if err != nil {
+			return wrap(CodeDependency, "查询过期订单失败", err)
+		}
+		for _, o := range expiredPending {
+			if err := s.priceLocks.ReleaseByOrderID(txCtx, o.OrderID); err != nil {
+				return wrap(CodeDependency, "级联释放过期订单锁失败", err)
+			}
+		}
+
+		c, err := s.orders.DeleteExpiredBefore(txCtx, cutoff)
+		if err != nil {
+			return wrap(CodeDependency, "删除过期订单失败", err)
+		}
+		count = c
+		return nil
+	})
+	return count, err
+}
+
 func (s *OrderService) ExpireOrders(ctx context.Context) (int, error) {
 	now := s.clock.Now()
 	closed := 0

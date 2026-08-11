@@ -217,6 +217,7 @@ func registerAPI(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
 	management.DELETE("/order/:id", h.Orders.DeleteAPI)
 	management.DELETE("/order/last", h.Orders.DeleteLastAPI)
 	management.POST("/order/expired", h.Orders.ExpiredAPI)
+	management.DELETE("/order/expired", h.Orders.DeleteExpiredAPI)
 	management.POST("/order/reissue/:id", h.Orders.ReissueAPI)
 	management.POST("/config/save", h.UpdateSettings)
 	management.POST("/config/monitor", h.UpdateMonitor)

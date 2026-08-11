@@ -97,6 +97,7 @@ type OrderRepository interface {
 	Transition(ctx context.Context, id int64, from, to order.Status, changedAt time.Time) (bool, error)
 	Delete(ctx context.Context, id int64) (bool, error)
 	DeleteBefore(ctx context.Context, before time.Time) (int64, error)
+	DeleteExpiredBefore(ctx context.Context, before time.Time) (int64, error)
 }
 
 // QRCodeImageCodec 隔离二维码编解码库，业务层只处理字节和文本。

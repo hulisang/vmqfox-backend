@@ -18,7 +18,6 @@ COPY cmd ./cmd
 COPY internal ./internal
 
 RUN go build -trimpath -ldflags="-s -w" -o /out/vmqfox-api ./cmd/vmqfox-api
-RUN go build -trimpath -ldflags="-s -w" -o /out/vmqfox-password ./cmd/vmqfox-password
 
 # 精简运行时仍保留 CA、时区和 wget，分别用于 HTTPS 通知、时间处理和健康检查。
 FROM alpine:3.22 AS runtime
@@ -31,9 +30,8 @@ RUN apk add --no-cache ca-certificates tzdata wget \
     && adduser -S -G vmqfox vmqfox
 
 COPY --from=builder /out/vmqfox-api /usr/local/bin/vmqfox-api
-COPY --from=builder /out/vmqfox-password /usr/local/bin/vmqfox-password
 COPY entrypoint.sh /usr/local/bin/vmqfox-entrypoint
-RUN chmod 0555 /usr/local/bin/vmqfox-entrypoint /usr/local/bin/vmqfox-api /usr/local/bin/vmqfox-password
+RUN chmod 0555 /usr/local/bin/vmqfox-entrypoint /usr/local/bin/vmqfox-api
 
 USER vmqfox:vmqfox
 EXPOSE 8080

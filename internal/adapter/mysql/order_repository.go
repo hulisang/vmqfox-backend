@@ -202,6 +202,13 @@ func (r *OrderRepository) DeleteBefore(ctx context.Context, before time.Time) (i
 	return result.RowsAffected, result.Error
 }
 
+func (r *OrderRepository) DeleteExpiredBefore(ctx context.Context, before time.Time) (int64, error) {
+	result := databaseFromContext(ctx, r.db).
+		Where("created_at < ? AND state IN (?, ?)", before, int(order.StatusPending), int(order.StatusClosed)).
+		Delete(&OrderRow{})
+	return result.RowsAffected, result.Error
+}
+
 func orderToRow(value order.Order) OrderRow {
 	return OrderRow{
 		ID:              value.ID,

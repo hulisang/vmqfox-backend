@@ -29,6 +29,7 @@ type OrderManager interface {
 	DeleteByID(context.Context, int64) error
 	DeleteLast(context.Context, time.Duration) (int64, error)
 	ExpireOrders(context.Context) (int, error)
+	DeleteExpired(context.Context) (int64, error)
 	ReissueByID(context.Context, int64) error
 }
 
@@ -41,11 +42,12 @@ type OrderHandlers struct {
 	CheckAPI      gin.HandlerFunc
 	ReturnURLAPI  gin.HandlerFunc
 	CloseAPI      gin.HandlerFunc
-	DeleteAPI     gin.HandlerFunc
-	DeleteLastAPI gin.HandlerFunc
-	ExpiredAPI    gin.HandlerFunc
-	ReissueAPI    gin.HandlerFunc
-	CreateLegacy  gin.HandlerFunc
+	DeleteAPI        gin.HandlerFunc
+	DeleteLastAPI    gin.HandlerFunc
+	ExpiredAPI       gin.HandlerFunc
+	DeleteExpiredAPI gin.HandlerFunc
+	ReissueAPI       gin.HandlerFunc
+	CreateLegacy     gin.HandlerFunc
 	GetLegacy     gin.HandlerFunc
 	CheckLegacy   gin.HandlerFunc
 }
@@ -60,10 +62,11 @@ func newOrderHandlers(service OrderManager) OrderHandlers {
 		CheckAPI:      checkOrderAPIHandler(service),
 		ReturnURLAPI:  returnURLAPIHandler(service),
 		CloseAPI:      closeOrderAPIHandler(service),
-		DeleteAPI:     deleteOrderAPIHandler(service),
-		DeleteLastAPI: deleteLastOrderAPIHandler(service),
-		ExpiredAPI:    expireOrdersAPIHandler(service),
-		ReissueAPI:    reissueOrderAPIHandler(service),
+		DeleteAPI:        deleteOrderAPIHandler(service),
+		DeleteLastAPI:    deleteLastOrderAPIHandler(service),
+		ExpiredAPI:       expireOrdersAPIHandler(service),
+		DeleteExpiredAPI: deleteExpiredOrdersAPIHandler(service),
+		ReissueAPI:       reissueOrderAPIHandler(service),
 		CreateLegacy:  createOrderHandler(service, usecase.CreateSignatureLegacy, ProtocolLegacy),
 		GetLegacy:     getOrderLegacyHandler(service),
 		CheckLegacy:   checkOrderLegacyHandler(service),
@@ -346,6 +349,23 @@ func reissueOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "人工补单成功", nil))
+	}
+}
+
+func deleteExpiredOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if service == nil {
+			writeOrderUnavailable(c, ProtocolAPI)
+			return
+		}
+		count, err := service.DeleteExpired(c.Request.Context())
+		if err != nil {
+			writeOrderError(c, err, ProtocolAPI)
+			return
+		}
+		c.JSON(http.StatusOK, php.NewEnvelope(200, "删除过期订单成功", gin.H{
+			"deletedCount": count,
+		}))
 	}
 }
 
