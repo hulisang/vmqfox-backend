@@ -107,22 +107,10 @@ func CreateSignNew(payID, param, typ, price, key string) string {
 	return md5Hex("payId=" + payID + "&param=" + param + "&type=" + typ + "&price=" + price + "&key=" + key)
 }
 
-// CreateSignLegacy 保留历史创建订单的无分隔符格式。
-func CreateSignLegacy(payID, param, typ, price, key string) string {
-	return md5Hex(payID + param + typ + price + key)
-}
-
-// CallbackSignNew 用于到账通知和返回 URL 的新版签名。
 func CallbackSignNew(payID, param, typ, price, reallyPrice, key string) string {
 	return md5Hex("payId=" + payID + "&param=" + param + "&type=" + typ + "&price=" + price + "&reallyPrice=" + reallyPrice + "&key=" + key)
 }
 
-// CallbackSignLegacy 用于历史到账通知和返回 URL 的无分隔符签名。
-func CallbackSignLegacy(payID, param, typ, price, reallyPrice, key string) string {
-	return md5Hex(payID + param + typ + price + reallyPrice + key)
-}
-
-// HeartbeatSign 严格按 t+key 拼接后计算 MD5。
 func HeartbeatSign(timestamp, key string) string { return md5Hex(timestamp + key) }
 
 // PushSign 严格按 type+price+t+key 拼接后计算 MD5。

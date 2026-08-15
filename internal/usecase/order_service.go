@@ -23,22 +23,14 @@ const (
 	priceLockAttempts   = 10
 )
 
-type CreateSignatureMode uint8
-
-const (
-	CreateSignatureNew CreateSignatureMode = iota
-	CreateSignatureLegacy
-)
-
 type CreateOrderInput struct {
-	PayID         string
-	Param         string
-	Type          string
-	Price         string
-	Sign          string
-	NotifyURL     string
-	ReturnURL     string
-	SignatureMode CreateSignatureMode
+	PayID     string
+	Param     string
+	Type      string
+	Price     string
+	Sign      string
+	NotifyURL string
+	ReturnURL string
 }
 
 type CreateOrderResult struct {
@@ -86,11 +78,8 @@ type CheckOrderResult struct {
 }
 
 type ReturnURLResult struct {
-	ReturnURL       string
-	ReturnURLNew    string
-	ReturnURLLegacy string
-	Sign            string
-	SignLegacy      string
+	ReturnURL string
+	Sign      string
 }
 
 type OrderServiceDeps struct {
@@ -347,6 +336,10 @@ func (s *OrderService) ReturnURL(ctx context.Context, orderID string) (ReturnURL
 	if value.ReturnURL == "" {
 		return ReturnURLResult{}, fail(CodeConfiguration, "订单没有配置返回URL")
 	}
+	// 安全加固：仅当订单已处于已支付或通知失败状态时，才允许生成带签名的回跳地址，防止未支付订单骗取签名
+	if value.State != order.StatusPaid && value.State != order.StatusNotifyFailed {
+		return ReturnURLResult{}, fail(CodeInvalidState, "订单尚未支付，无法生成回跳签名")
+	}
 	merchantKey, err := s.settings.Get(ctx, setting.MerchantKey)
 	if errors.Is(err, port.ErrNotFound) || merchantKey == "" {
 		return ReturnURLResult{}, fail(CodeConfiguration, "系统未配置密钥")
@@ -359,21 +352,16 @@ func (s *OrderService) ReturnURL(ctx context.Context, orderID string) (ReturnURL
 	price := amountText(value.PriceText, value.PriceCents)
 	reallyPrice := amountText(value.ReallyPriceText, value.ReallyPriceCents)
 	signNew := payment.CallbackSignNew(value.PayID, value.Param, typeText, price, reallyPrice, merchantKey)
-	signLegacy := payment.CallbackSignLegacy(value.PayID, value.Param, typeText, price, reallyPrice, merchantKey)
 	baseQuery := "payId=" + url.QueryEscape(value.PayID) +
 		"&param=" + url.QueryEscape(value.Param) +
 		"&type=" + url.QueryEscape(typeText) +
 		"&price=" + url.QueryEscape(price) +
 		"&reallyPrice=" + url.QueryEscape(reallyPrice)
 	newURL := appendReturnQuery(value.ReturnURL, baseQuery+"&sign="+url.QueryEscape(signNew))
-	legacyURL := appendReturnQuery(value.ReturnURL, baseQuery+"&sign="+url.QueryEscape(signLegacy))
 
 	return ReturnURLResult{
-		ReturnURL:       newURL,
-		ReturnURLNew:    newURL,
-		ReturnURLLegacy: legacyURL,
-		Sign:            signNew,
-		SignLegacy:      signLegacy,
+		ReturnURL: newURL,
+		Sign:      signNew,
 	}, nil
 }
 
@@ -468,9 +456,6 @@ func (s *OrderService) readCloseMinutes(ctx context.Context) (int, error) {
 
 func validCreateSign(input CreateOrderInput, key string) bool {
 	expected := payment.CreateSignNew(input.PayID, input.Param, input.Type, input.Price, key)
-	if input.SignatureMode == CreateSignatureLegacy {
-		expected = payment.CreateSignLegacy(input.PayID, input.Param, input.Type, input.Price, key)
-	}
 	return len(expected) == len(input.Sign) && subtle.ConstantTimeCompare([]byte(expected), []byte(input.Sign)) == 1
 }
 
@@ -729,27 +714,10 @@ func reissueNotificationPayload(value order.Order, merchantKey string) Notificat
 		merchantKey,
 	))
 
-	legacyValues := url.Values{
-		"payId":       []string{value.PayID},
-		"param":       []string{value.Param},
-		"type":        []string{typeText},
-		"price":       []string{price},
-		"reallyPrice": []string{reallyPrice},
-	}
-	legacyValues.Set("sign", payment.CallbackSignLegacy(
-		value.PayID,
-		value.Param,
-		typeText,
-		price,
-		reallyPrice,
-		merchantKey,
-	))
-
 	return NotificationPayload{
-		OrderID:     value.OrderID,
-		NotifyURL:   value.NotifyURL,
-		NewForm:     newValues.Encode(),
-		LegacyQuery: legacyValues.Encode(),
+		OrderID:   value.OrderID,
+		NotifyURL: value.NotifyURL,
+		NewForm:   newValues.Encode(),
 	}
 }
 

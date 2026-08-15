@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -80,6 +82,8 @@ func (c RuntimeConfig) CanWrite() bool {
 }
 
 func Load() (Config, error) {
+	loadDotEnv()
+
 	serverPort, err := integer("VMQ_SERVER_PORT", 8080)
 	if err != nil || serverPort < 1 || serverPort > 65535 {
 		return Config{}, fmt.Errorf("VMQ_SERVER_PORT 配置无效")
@@ -279,4 +283,40 @@ func requiredDuration(names []string) (time.Duration, error) {
 		return 0, err
 	}
 	return time.Duration(seconds) * time.Second, nil
+}
+
+func loadDotEnv() {
+	candidates := []string{".env", "../.env"}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(bytes.NewReader(data))
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if strings.HasPrefix(line, "export ") {
+				line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			if (strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"")) ||
+				(strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'")) {
+				if len(val) >= 2 {
+					val = val[1 : len(val)-1]
+				}
+			}
+			if _, exists := os.LookupEnv(key); !exists {
+				_ = os.Setenv(key, val)
+			}
+		}
+		break
+	}
 }

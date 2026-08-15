@@ -38,7 +38,6 @@ type QRCodeManager interface {
 
 type QRCodeHandlers struct {
 	GenerateAPI     gin.HandlerFunc
-	GenerateLegacy  gin.HandlerFunc
 	ParseAPI        gin.HandlerFunc
 	ListAPI         gin.HandlerFunc
 	ListWechatAPI   gin.HandlerFunc
@@ -50,16 +49,11 @@ type QRCodeHandlers struct {
 	DeleteAPI       gin.HandlerFunc
 	DeleteWechatAPI gin.HandlerFunc
 	DeleteAlipayAPI gin.HandlerFunc
-	AddLegacy       gin.HandlerFunc
-	ListLegacy      gin.HandlerFunc
-	DeleteLegacy    gin.HandlerFunc
-	SetStateLegacy  gin.HandlerFunc
 }
 
 func newQRCodeHandlers(images QRCodeImageManager, manager QRCodeManager) QRCodeHandlers {
 	return QRCodeHandlers{
-		GenerateAPI:     generateQRCodeHandler(images, ProtocolAPI),
-		GenerateLegacy:  generateQRCodeHandler(images, ProtocolLegacy),
+		GenerateAPI:     generateQRCodeHandler(images),
 		ParseAPI:        parseQRCodeHandler(images),
 		ListAPI:         listQRCodesHandler(manager, nil),
 		ListWechatAPI:   listQRCodesHandler(manager, paymentTypePointer(payment.Wechat)),
@@ -71,156 +65,11 @@ func newQRCodeHandlers(images QRCodeImageManager, manager QRCodeManager) QRCodeH
 		DeleteAPI:       deleteQRCodeHandler(manager, nil),
 		DeleteWechatAPI: deleteQRCodeHandler(manager, paymentTypePointer(payment.Wechat)),
 		DeleteAlipayAPI: deleteQRCodeHandler(manager, paymentTypePointer(payment.Alipay)),
-		AddLegacy:       addLegacyQRCodeHandler(manager),
-		ListLegacy:      listLegacyQRCodesHandler(manager),
-		DeleteLegacy:    deleteLegacyQRCodeHandler(manager),
-		SetStateLegacy:  setLegacyQRCodeStateHandler(manager),
 	}
 }
 
 func paymentTypePointer(value payment.Type) *payment.Type {
 	return &value
-}
-
-func listLegacyQRCodesHandler(service QRCodeManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(-1, "二维码服务不可用", nil))
-			return
-		}
-		page, err := positiveQueryInt(c.Query("page"), 1)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 1, "msg": "分页参数无效", "count": 0, "data": []gin.H{}})
-			return
-		}
-		limit, err := positiveQueryInt(c.Query("limit"), 10)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"code": 1, "msg": "分页参数无效", "count": 0, "data": []gin.H{}})
-			return
-		}
-
-		var filterType *payment.Type
-		if rawType := strings.TrimSpace(c.Query("type")); rawType != "" && rawType != "0" {
-			value, parseErr := strconv.Atoi(rawType)
-			parsed := payment.Type(value)
-			if parseErr != nil || !parsed.Valid() {
-				c.JSON(http.StatusOK, gin.H{"code": 1, "msg": "支付类型错误", "count": 0, "data": []gin.H{}})
-				return
-			}
-			filterType = &parsed
-		}
-
-		result, err := service.List(c.Request.Context(), usecase.ListQRCodesInput{Type: filterType, Page: page, Limit: limit})
-		if err != nil {
-			writeLegacyQRCodeError(c, err)
-			return
-		}
-		items := make([]gin.H, 0, len(result.Items))
-		for _, value := range result.Items {
-			items = append(items, legacyQRCodeData(value))
-		}
-		c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "", "count": result.Total, "data": items})
-	}
-}
-
-func addLegacyQRCodeHandler(service QRCodeManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(-1, "二维码服务不可用", nil))
-			return
-		}
-		params, err := scalarRequestParams(c)
-		if err != nil {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "二维码参数无效", nil))
-			return
-		}
-		typeValue, parseErr := strconv.Atoi(params["type"])
-		paymentType := payment.Type(typeValue)
-		if parseErr != nil || !paymentType.Valid() {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "支付类型错误", nil))
-			return
-		}
-		if _, err := service.Create(c.Request.Context(), usecase.CreateQRCodeInput{
-			Type: paymentType, PayURL: params["pay_url"], Price: params["price"],
-		}); err != nil {
-			writeLegacyQRCodeError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, php.NewEnvelope(1, "成功", nil))
-	}
-}
-
-func deleteLegacyQRCodeHandler(service QRCodeManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(-1, "二维码服务不可用", nil))
-			return
-		}
-		params, err := scalarRequestParams(c)
-		if err != nil {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "二维码参数无效", nil))
-			return
-		}
-		id, parseErr := strconv.ParseInt(params["id"], 10, 64)
-		if parseErr != nil || id <= 0 {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "二维码ID无效", nil))
-			return
-		}
-		if err := service.Delete(c.Request.Context(), id, nil); err != nil {
-			if code, ok := usecase.ErrorCodeOf(err); !ok || code != usecase.CodeNotFound {
-				writeLegacyQRCodeError(c, err)
-				return
-			}
-		}
-		c.JSON(http.StatusOK, php.NewEnvelope(1, "成功", nil))
-	}
-}
-
-func setLegacyQRCodeStateHandler(service QRCodeManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(-1, "二维码服务不可用", nil))
-			return
-		}
-		params, err := scalarRequestParams(c)
-		if err != nil {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "二维码参数无效", nil))
-			return
-		}
-		id, idErr := strconv.ParseInt(params["id"], 10, 64)
-		stateValue, stateErr := strconv.Atoi(params["state"])
-		state := qrcode.State(stateValue)
-		if idErr != nil || id <= 0 || stateErr != nil || !state.Valid() {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "二维码参数无效", nil))
-			return
-		}
-		if err := service.SetState(c.Request.Context(), id, state); err != nil {
-			if code, ok := usecase.ErrorCodeOf(err); !ok || code != usecase.CodeNotFound {
-				writeLegacyQRCodeError(c, err)
-				return
-			}
-		}
-		c.JSON(http.StatusOK, php.NewEnvelope(1, "成功", nil))
-	}
-}
-
-func legacyQRCodeData(value qrcode.QRCode) gin.H {
-	return gin.H{
-		"id":      value.ID,
-		"type":    int(value.Type),
-		"pay_url": value.PayURL,
-		"price":   json.Number(order.FormatCents(value.PriceCents)),
-		"state":   int(value.State),
-	}
-}
-
-func writeLegacyQRCodeError(c *gin.Context, err error) {
-	var appError *usecase.Error
-	if errors.As(err, &appError) {
-		c.JSON(http.StatusOK, php.NewEnvelope(-1, appError.Message, nil))
-		return
-	}
-	c.JSON(http.StatusOK, php.NewEnvelope(-1, "二维码服务异常", nil))
 }
 
 func listQRCodesHandler(service QRCodeManager, fixedType *payment.Type) gin.HandlerFunc {
@@ -395,10 +244,10 @@ func qrcodeStateText(value qrcode.State) string {
 	return "禁用"
 }
 
-func generateQRCodeHandler(service QRCodeImageManager, style ProtocolStyle) gin.HandlerFunc {
+func generateQRCodeHandler(service QRCodeImageManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeQRCodeImageUnavailable(c, style)
+			writeQRCodeImageUnavailable(c)
 			return
 		}
 		content := c.Query("url")
@@ -406,16 +255,12 @@ func generateQRCodeHandler(service QRCodeImageManager, style ProtocolStyle) gin.
 			content = c.Param("url")
 		}
 		if content == "" {
-			if style == ProtocolLegacy {
-				c.JSON(http.StatusOK, php.NewEnvelope(-1, "缺少URL参数", nil))
-				return
-			}
 			c.JSON(http.StatusOK, php.NewEnvelope(400, "URL参数不能为空", nil))
 			return
 		}
 		result, err := service.GeneratePNG(content)
 		if err != nil {
-			writeQRCodeImageError(c, err, style)
+			writeQRCodeImageError(c, err)
 			return
 		}
 
@@ -434,7 +279,7 @@ func generateQRCodeHandler(service QRCodeImageManager, style ProtocolStyle) gin.
 func parseQRCodeHandler(service QRCodeImageManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeQRCodeImageUnavailable(c, ProtocolAPI)
+			writeQRCodeImageUnavailable(c)
 			return
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxQRCodeRequestBytes)
@@ -480,7 +325,7 @@ func parseQRCodeHandler(service QRCodeImageManager) gin.HandlerFunc {
 
 		text, err := service.Decode(imageData)
 		if err != nil {
-			writeQRCodeImageError(c, err, ProtocolAPI)
+			writeQRCodeImageError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", gin.H{"url": text}))
@@ -491,25 +336,12 @@ func writeQRCodeUnavailable(c *gin.Context) {
 	c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(503, "二维码服务不可用", nil))
 }
 
-func writeQRCodeImageUnavailable(c *gin.Context, style ProtocolStyle) {
-	if style == ProtocolLegacy {
-		c.JSON(http.StatusOK, php.NewEnvelope(-1, "二维码服务不可用", nil))
-		return
-	}
+func writeQRCodeImageUnavailable(c *gin.Context) {
 	writeQRCodeUnavailable(c)
 }
 
-func writeQRCodeImageError(c *gin.Context, err error, style ProtocolStyle) {
-	if style != ProtocolLegacy {
-		writeQRCodeError(c, err)
-		return
-	}
-	var appError *usecase.Error
-	if !errors.As(err, &appError) {
-		c.JSON(http.StatusOK, php.NewEnvelope(-1, "二维码服务异常", nil))
-		return
-	}
-	c.JSON(http.StatusOK, php.NewEnvelope(-1, appError.Message, nil))
+func writeQRCodeImageError(c *gin.Context, err error) {
+	writeQRCodeError(c, err)
 }
 
 func writeQRCodeError(c *gin.Context, err error) {

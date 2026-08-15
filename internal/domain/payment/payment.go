@@ -34,10 +34,6 @@ func CreateSignNew(payID, param, paymentType, price, key string) string {
 	)
 }
 
-func CreateSignLegacy(payID, param, paymentType, price, key string) string {
-	return md5Hex(payID + param + paymentType + price + key)
-}
-
 func CallbackSignNew(payID, param, paymentType, price, reallyPrice, key string) string {
 	return md5Hex(
 		"payId=" + payID +
@@ -47,10 +43,6 @@ func CallbackSignNew(payID, param, paymentType, price, reallyPrice, key string) 
 			"&reallyPrice=" + reallyPrice +
 			"&key=" + key,
 	)
-}
-
-func CallbackSignLegacy(payID, param, paymentType, price, reallyPrice, key string) string {
-	return md5Hex(payID + param + paymentType + price + reallyPrice + key)
 }
 
 func md5Hex(value string) string {

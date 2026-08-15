@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/hulisang/vmqfox-backend/internal/domain/order"
@@ -87,7 +86,7 @@ func (s *NotificationService) deliver(ctx context.Context, message port.OutboxMe
 	if payload.NotifyURL == "" {
 		return true, ""
 	}
-	if payload.NewForm == "" || payload.LegacyQuery == "" {
+	if payload.NewForm == "" {
 		return false, "通知载荷缺少预签名请求参数"
 	}
 
@@ -102,21 +101,17 @@ func (s *NotificationService) deliver(ctx context.Context, message port.OutboxMe
 		return true, ""
 	}
 
-	legacyResult, legacyErr := s.notifier.Send(ctx, port.Notification{
-		OrderID: payload.OrderID,
-		URL:     appendQuery(payload.NotifyURL, payload.LegacyQuery),
-		Method:  http.MethodGet,
-	})
-	if notificationSucceeded(legacyResult, legacyErr) {
-		return true, ""
-	}
-	return false, notificationFailure(newResult, newErr, legacyResult, legacyErr)
+	return false, notificationFailure(newResult, newErr)
 }
 
 func (s *NotificationService) settleDelivered(ctx context.Context, message port.OutboxMessage, now time.Time) error {
 	return s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
 		value, err := s.orders.FindByOrderIDForUpdate(txCtx, message.AggregateID)
 		if err != nil {
+			if errors.Is(err, port.ErrNotFound) {
+				// 关联订单已被删除，直接将孤立消息标记完成避免死循环
+				return s.outbox.MarkDelivered(txCtx, message.ID, message.LeaseToken, now)
+			}
 			return wrap(CodeDependency, "查询通知订单失败", err)
 		}
 		if value.State == order.StatusNotifyFailed {
@@ -143,6 +138,10 @@ func (s *NotificationService) settleFailed(ctx context.Context, message port.Out
 	return s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
 		value, err := s.orders.FindByOrderIDForUpdate(txCtx, message.AggregateID)
 		if err != nil {
+			if errors.Is(err, port.ErrNotFound) {
+				// 关联订单已被删除，将孤立消息标记为已结束，避免无限重试刷屏
+				return s.outbox.MarkDelivered(txCtx, message.ID, message.LeaseToken, now)
+			}
 			return wrap(CodeDependency, "查询通知订单失败", err)
 		}
 		if value.State == order.StatusPaid {
@@ -164,28 +163,15 @@ func (s *NotificationService) settleFailed(ctx context.Context, message port.Out
 }
 
 func notificationSucceeded(result port.NotificationResult, err error) bool {
-	// 只接受成功状态和字节级精确正文，3xx 及错误状态必须进入历史 GET 回退。
+	// 只接受成功状态和字节级精确正文。
 	return err == nil && result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices && string(result.Body) == "success"
 }
 
-func notificationFailure(newResult port.NotificationResult, newErr error, legacyResult port.NotificationResult, legacyErr error) string {
-	return fmt.Sprintf(
-		"新版POST(status=%d,error=%v,body=%q); 历史GET(status=%d,error=%v,body=%q)",
-		newResult.StatusCode,
-		newErr,
-		truncateBody(newResult.Body),
-		legacyResult.StatusCode,
-		legacyErr,
-		truncateBody(legacyResult.Body),
-	)
-}
-
-func appendQuery(baseURL, query string) string {
-	separator := "?"
-	if strings.Contains(baseURL, "?") {
-		separator = "&"
+func notificationFailure(result port.NotificationResult, err error) string {
+	if err != nil {
+		return err.Error()
 	}
-	return baseURL + separator + query
+	return fmt.Sprintf("通知失败，HTTP状态码: %d，响应: %s", result.StatusCode, truncateBody(result.Body))
 }
 
 func notificationBackoff(attempts int) time.Duration {

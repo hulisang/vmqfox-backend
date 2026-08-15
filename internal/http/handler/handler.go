@@ -50,22 +50,12 @@ type Dependencies struct {
 	Status       StatusProvider
 }
 
-type ProtocolStyle uint8
-
-const (
-	ProtocolAPI ProtocolStyle = iota
-	ProtocolLegacy
-	ProtocolLayui
-	ProtocolRaw
-)
-
 type Handlers struct {
 	Health         gin.HandlerFunc
 	Ready          gin.HandlerFunc
 	Root           gin.HandlerFunc
 	Login          gin.HandlerFunc
 	Logout         gin.HandlerFunc
-	LegacyProbe    gin.HandlerFunc
 	GetSettings    gin.HandlerFunc
 	GetMonitor     gin.HandlerFunc
 	UpdateSettings gin.HandlerFunc
@@ -78,9 +68,6 @@ type Handlers struct {
 	Monitor        MonitorHandlers
 	QRCodes        QRCodeHandlers
 	APIError       gin.HandlerFunc
-	LegacyError    gin.HandlerFunc
-	LayuiError     gin.HandlerFunc
-	RawError       gin.HandlerFunc
 }
 
 func New(deps Dependencies) Handlers {
@@ -95,7 +82,6 @@ func New(deps Dependencies) Handlers {
 		Root:           rootHandler(status),
 		Login:          loginHandler(deps.Auth),
 		Logout:         logoutHandler(),
-		LegacyProbe:    legacyProbeHandler(),
 		GetSettings:    getSettingsHandler(deps.Settings),
 		GetMonitor:     getMonitorSettingsHandler(deps.Settings),
 		UpdateSettings: updateSettingsHandler(deps.Settings),
@@ -107,10 +93,7 @@ func New(deps Dependencies) Handlers {
 		Orders:         newOrderHandlers(deps.Orders),
 		Monitor:        newMonitorHandlers(deps.Monitor),
 		QRCodes:        newQRCodeHandlers(deps.QRCodeImages, deps.QRCodes),
-		APIError:       Unimplemented(ProtocolAPI),
-		LegacyError:    Unimplemented(ProtocolLegacy),
-		LayuiError:     Unimplemented(ProtocolLayui),
-		RawError:       Unimplemented(ProtocolRaw),
+		APIError:       Unimplemented(),
 	}
 }
 
@@ -185,30 +168,9 @@ func formatUptime(value time.Duration) string {
 	return builder.String()
 }
 
-func legacyProbeHandler() gin.HandlerFunc {
+func Unimplemented() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, php.NewEnvelope(1, "成功", nil))
-	}
-}
-
-func Unimplemented(style ProtocolStyle) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		const status = http.StatusNotImplemented
-		switch style {
-		case ProtocolLegacy:
-			c.JSON(status, php.NewEnvelope(-1, notImplementedMessage, nil))
-		case ProtocolLayui:
-			c.JSON(status, gin.H{
-				"code":  -1,
-				"msg":   notImplementedMessage,
-				"count": 0,
-				"data":  nil,
-			})
-		case ProtocolRaw:
-			c.String(status, notImplementedMessage+"\n")
-		default:
-			c.JSON(status, php.NewEnvelope(501, notImplementedMessage, nil))
-		}
+		c.JSON(http.StatusNotImplemented, php.NewEnvelope(501, notImplementedMessage, nil))
 	}
 }
 

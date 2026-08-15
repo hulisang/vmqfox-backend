@@ -34,84 +34,65 @@ type OrderManager interface {
 }
 
 type OrderHandlers struct {
-	CreateAPI     gin.HandlerFunc
-	GetAPI        gin.HandlerFunc
-	ListAPI       gin.HandlerFunc
-	StatisticsAPI gin.HandlerFunc
-	DetailAPI     gin.HandlerFunc
-	CheckAPI      gin.HandlerFunc
-	ReturnURLAPI  gin.HandlerFunc
-	CloseAPI      gin.HandlerFunc
+	CreateAPI        gin.HandlerFunc
+	GetAPI           gin.HandlerFunc
+	ListAPI          gin.HandlerFunc
+	StatisticsAPI    gin.HandlerFunc
+	DetailAPI        gin.HandlerFunc
+	CheckAPI         gin.HandlerFunc
+	ReturnURLAPI     gin.HandlerFunc
+	CloseAPI         gin.HandlerFunc
 	DeleteAPI        gin.HandlerFunc
 	DeleteLastAPI    gin.HandlerFunc
 	ExpiredAPI       gin.HandlerFunc
 	DeleteExpiredAPI gin.HandlerFunc
 	ReissueAPI       gin.HandlerFunc
-	CreateLegacy     gin.HandlerFunc
-	GetLegacy     gin.HandlerFunc
-	CheckLegacy   gin.HandlerFunc
 }
 
 func newOrderHandlers(service OrderManager) OrderHandlers {
 	return OrderHandlers{
-		CreateAPI:     createOrderHandler(service, usecase.CreateSignatureNew, ProtocolAPI),
-		GetAPI:        getOrderAPIHandler(service),
-		ListAPI:       listOrdersAPIHandler(service),
-		StatisticsAPI: orderStatisticsAPIHandler(service),
-		DetailAPI:     orderDetailAPIHandler(service),
-		CheckAPI:      checkOrderAPIHandler(service),
-		ReturnURLAPI:  returnURLAPIHandler(service),
-		CloseAPI:      closeOrderAPIHandler(service),
+		CreateAPI:        createOrderHandler(service),
+		GetAPI:           getOrderAPIHandler(service),
+		ListAPI:          listOrdersAPIHandler(service),
+		StatisticsAPI:    orderStatisticsAPIHandler(service),
+		DetailAPI:        orderDetailAPIHandler(service),
+		CheckAPI:         checkOrderAPIHandler(service),
+		ReturnURLAPI:     returnURLAPIHandler(service),
+		CloseAPI:         closeOrderAPIHandler(service),
 		DeleteAPI:        deleteOrderAPIHandler(service),
 		DeleteLastAPI:    deleteLastOrderAPIHandler(service),
 		ExpiredAPI:       expireOrdersAPIHandler(service),
 		DeleteExpiredAPI: deleteExpiredOrdersAPIHandler(service),
 		ReissueAPI:       reissueOrderAPIHandler(service),
-		CreateLegacy:  createOrderHandler(service, usecase.CreateSignatureLegacy, ProtocolLegacy),
-		GetLegacy:     getOrderLegacyHandler(service),
-		CheckLegacy:   checkOrderLegacyHandler(service),
 	}
 }
 
-func createOrderHandler(service OrderManager, signatureMode usecase.CreateSignatureMode, style ProtocolStyle) gin.HandlerFunc {
+func createOrderHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, style)
+			writeOrderUnavailable(c)
 			return
 		}
 		params, err := scalarRequestParams(c)
 		if err != nil {
-			writeOrderBindingError(c, style)
+			writeOrderBindingError(c)
 			return
 		}
-		if style == ProtocolLegacy {
-			if message := validateLegacyCreateParams(params); message != "" {
-				c.JSON(http.StatusOK, php.NewEnvelope(-1, message, nil))
-				return
-			}
-		}
-
 		result, err := service.Create(c.Request.Context(), usecase.CreateOrderInput{
-			PayID:         params["payId"],
-			Param:         params["param"],
-			Type:          params["type"],
-			Price:         params["price"],
-			Sign:          params["sign"],
-			NotifyURL:     params["notifyUrl"],
-			ReturnURL:     params["returnUrl"],
-			SignatureMode: signatureMode,
+			PayID:     params["payId"],
+			Param:     params["param"],
+			Type:      params["type"],
+			Price:     params["price"],
+			Sign:      params["sign"],
+			NotifyURL: params["notifyUrl"],
+			ReturnURL: params["returnUrl"],
 		})
 		if err != nil {
-			writeOrderError(c, err, style)
+			writeOrderError(c, err)
 			return
 		}
 		if params["isHtml"] == "1" {
-			writePaymentRedirectHTML(c, result.RedirectURL, style == ProtocolAPI)
-			return
-		}
-
-		if style == ProtocolLegacy {
-			c.JSON(http.StatusOK, php.NewEnvelope(1, "成功", legacyCreateOrderData(result)))
+			writePaymentRedirectHTML(c, result.RedirectURL, true)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", apiCreateOrderData(result)))
@@ -121,12 +102,12 @@ func createOrderHandler(service OrderManager, signatureMode usecase.CreateSignat
 func getOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		result, err := service.Get(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", apiOrderViewData(result)))
@@ -136,7 +117,7 @@ func getOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 func listOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		page, err := positiveQueryInt(c.Query("page"), 1)
@@ -167,7 +148,7 @@ func listOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 			Limit: limit,
 		})
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		items := make([]gin.H, 0, len(result.Items))
@@ -184,12 +165,12 @@ func listOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 func orderStatisticsAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		statistics, err := service.Statistics(c.Request.Context())
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", gin.H{
@@ -206,7 +187,7 @@ func orderStatisticsAPIHandler(service OrderManager) gin.HandlerFunc {
 func orderDetailAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -216,7 +197,7 @@ func orderDetailAPIHandler(service OrderManager) gin.HandlerFunc {
 		}
 		value, err := service.Detail(c.Request.Context(), id)
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", apiOrderRowData(value)))
@@ -226,12 +207,12 @@ func orderDetailAPIHandler(service OrderManager) gin.HandlerFunc {
 func checkOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		result, err := service.Check(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, result.Message, apiCheckOrderData(result)))
@@ -241,21 +222,18 @@ func checkOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 func returnURLAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		result, err := service.ReturnURL(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", gin.H{
-			"returnUrl":       result.ReturnURL,
-			"returnUrlNew":    result.ReturnURLNew,
-			"returnUrlLegacy": result.ReturnURLLegacy,
-			"mode":            "new-first",
-			"sign":            result.Sign,
-			"signLegacy":      result.SignLegacy,
+			"returnUrl": result.ReturnURL,
+			"mode":      "new-first",
+			"sign":      result.Sign,
 		}))
 	}
 }
@@ -263,7 +241,7 @@ func returnURLAPIHandler(service OrderManager) gin.HandlerFunc {
 func closeOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -272,7 +250,7 @@ func closeOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 			return
 		}
 		if err := service.CloseByID(c.Request.Context(), id); err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "关闭订单成功", nil))
@@ -282,7 +260,7 @@ func closeOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 func deleteOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -291,7 +269,7 @@ func deleteOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 			return
 		}
 		if err := service.DeleteByID(c.Request.Context(), id); err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "删除订单成功", nil))
@@ -301,16 +279,17 @@ func deleteOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 func deleteLastOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		olderThan := 24 * time.Hour
 		count, err := service.DeleteLast(c.Request.Context(), olderThan)
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "清理旧订单成功", gin.H{
+			"count":        count,
 			"deletedCount": count,
 		}))
 	}
@@ -319,15 +298,16 @@ func deleteLastOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 func expireOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		count, err := service.ExpireOrders(c.Request.Context())
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "处理过期订单成功", gin.H{
+			"count":        count,
 			"expiredCount": count,
 		}))
 	}
@@ -336,7 +316,7 @@ func expireOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 func reissueOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -345,7 +325,7 @@ func reissueOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 			return
 		}
 		if err := service.ReissueByID(c.Request.Context(), id); err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "人工补单成功", nil))
@@ -355,115 +335,19 @@ func reissueOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 func deleteExpiredOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
-			writeOrderUnavailable(c, ProtocolAPI)
+			writeOrderUnavailable(c)
 			return
 		}
 		count, err := service.DeleteExpired(c.Request.Context())
 		if err != nil {
-			writeOrderError(c, err, ProtocolAPI)
+			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "删除过期订单成功", gin.H{
+			"count":        count,
 			"deletedCount": count,
 		}))
 	}
-}
-
-func getOrderLegacyHandler(service OrderManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			writeOrderUnavailable(c, ProtocolLegacy)
-			return
-		}
-		params, err := scalarRequestParams(c)
-		if err != nil {
-			writeOrderBindingError(c, ProtocolLegacy)
-			return
-		}
-		if params["orderId"] == "" {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "云端订单编号不存在", nil))
-			return
-		}
-		result, err := service.Get(c.Request.Context(), params["orderId"])
-		if err != nil {
-			if code, ok := usecase.ErrorCodeOf(err); ok && code == usecase.CodeNotFound {
-				c.JSON(http.StatusOK, php.NewEnvelope(-1, "云端订单编号不存在", nil))
-				return
-			}
-			writeOrderError(c, err, ProtocolLegacy)
-			return
-		}
-		c.JSON(http.StatusOK, php.NewEnvelope(1, "成功", legacyOrderViewData(result)))
-	}
-}
-
-func checkOrderLegacyHandler(service OrderManager) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			writeOrderUnavailable(c, ProtocolLegacy)
-			return
-		}
-		params, err := scalarRequestParams(c)
-		if err != nil {
-			writeOrderBindingError(c, ProtocolLegacy)
-			return
-		}
-		orderID := params["orderId"]
-		if orderID == "" {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "订单ID不能为空", nil))
-			return
-		}
-		result, err := service.Check(c.Request.Context(), orderID)
-		if err != nil {
-			if code, ok := usecase.ErrorCodeOf(err); ok && code == usecase.CodeNotFound {
-				c.JSON(http.StatusOK, php.NewEnvelope(-1, "云端订单编号不存在", nil))
-				return
-			}
-			writeOrderError(c, err, ProtocolLegacy)
-			return
-		}
-
-		switch result.State {
-		case order.StatusPending:
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "订单未支付", nil))
-		case order.StatusClosed:
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "订单已过期", nil))
-		default:
-			if result.ReturnURL == "" {
-				c.JSON(http.StatusOK, php.NewEnvelope(1, "订单支付成功，但未设置回调URL", nil))
-				return
-			}
-			returnURL, returnErr := service.ReturnURL(c.Request.Context(), orderID)
-			if returnErr != nil {
-				writeOrderError(c, returnErr, ProtocolLegacy)
-				return
-			}
-			c.JSON(http.StatusOK, php.NewEnvelope(1, "成功", returnURL.ReturnURLLegacy))
-		}
-	}
-}
-
-func validateLegacyCreateParams(params map[string]string) string {
-	if params["payId"] == "" {
-		return "请传入商户订单号"
-	}
-	if params["type"] == "" {
-		return "请传入支付方式=>1|微信 2|支付宝"
-	}
-	if params["type"] != "1" && params["type"] != "2" {
-		return "支付方式错误=>1|微信 2|支付宝"
-	}
-	if params["price"] == "" {
-		return "请传入订单金额"
-	}
-	priceCents, err := order.ParseAmountCents(params["price"])
-	if err != nil || priceCents <= 0 {
-		return "订单金额必须大于0"
-	}
-	if params["sign"] == "" {
-		return "请传入签名"
-	}
-	return ""
 }
 
 func apiCreateOrderData(result usecase.CreateOrderResult) gin.H {
@@ -477,22 +361,6 @@ func apiCreateOrderData(result usecase.CreateOrderResult) gin.H {
 		"payUrl":      value.PayURL,
 		"isAuto":      boolInt(value.IsAuto),
 		"redirectUrl": result.RedirectURL,
-	}
-}
-
-func legacyCreateOrderData(result usecase.CreateOrderResult) gin.H {
-	value := result.Order
-	return gin.H{
-		"payId":       value.PayID,
-		"orderId":     value.OrderID,
-		"payType":     int(value.Type),
-		"price":       result.Price,
-		"reallyPrice": result.ReallyPrice,
-		"payUrl":      value.PayURL,
-		"isAuto":      boolInt(value.IsAuto),
-		"state":       int(value.State),
-		"timeOut":     result.TimeoutMinutes,
-		"date":        value.CreatedAt.Unix(),
 	}
 }
 
@@ -520,22 +388,6 @@ func apiOrderViewData(result usecase.OrderView) gin.H {
 		"remainingSeconds": result.RemainingSeconds,
 		"return_url":       value.ReturnURL,
 		"param":            value.Param,
-	}
-}
-
-func legacyOrderViewData(result usecase.OrderView) gin.H {
-	value := result.Order
-	return gin.H{
-		"payId":       value.PayID,
-		"orderId":     value.OrderID,
-		"payType":     int(value.Type),
-		"price":       amountText(value.PriceText, value.PriceCents),
-		"reallyPrice": amountText(value.ReallyPriceText, value.ReallyPriceCents),
-		"payUrl":      value.PayURL,
-		"isAuto":      boolInt(value.IsAuto),
-		"state":       int(value.State),
-		"timeOut":     result.TimeoutMinutes,
-		"date":        value.CreatedAt.Unix(),
 	}
 }
 
@@ -680,42 +532,20 @@ func writePaymentRedirectHTML(c *gin.Context, redirectURL string, fullPage bool)
 </html>`, encodedURL)
 }
 
-func writeOrderUnavailable(c *gin.Context, style ProtocolStyle) {
-	if style == ProtocolLegacy {
-		c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(-1, "订单服务不可用", nil))
-		return
-	}
+func writeOrderUnavailable(c *gin.Context) {
 	c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(503, "订单服务不可用", nil))
 }
 
-func writeOrderBindingError(c *gin.Context, style ProtocolStyle) {
-	if style == ProtocolLegacy {
-		c.JSON(http.StatusOK, php.NewEnvelope(-1, "请求参数格式错误", nil))
-		return
-	}
+func writeOrderBindingError(c *gin.Context) {
 	c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
 }
 
-func writeOrderError(c *gin.Context, err error, style ProtocolStyle) {
+func writeOrderError(c *gin.Context, err error) {
 	var appError *usecase.Error
 	if !errors.As(err, &appError) {
-		if style == ProtocolLegacy {
-			c.JSON(http.StatusOK, php.NewEnvelope(-1, "服务器处理请求时发生错误", nil))
-			return
-		}
 		c.JSON(http.StatusOK, php.NewEnvelope(500, "服务器处理请求时发生错误", nil))
 		return
 	}
-
-	if style == ProtocolLegacy {
-		message := appError.Message
-		if appError.Code == usecase.CodeDuplicateOrder {
-			message = "订单号已存在"
-		}
-		c.JSON(http.StatusOK, php.NewEnvelope(-1, message, nil))
-		return
-	}
-
 	code := 400
 	if appError.Code == usecase.CodeDependency {
 		code = 500

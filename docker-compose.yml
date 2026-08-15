@@ -52,8 +52,8 @@ services:
       VMQ_TOKEN_SECRET: ${VMQ_TOKEN_SECRET:?VMQ_TOKEN_SECRET must be set}
       VMQ_TOKEN_ISSUER: ${VMQ_TOKEN_ISSUER:?VMQ_TOKEN_ISSUER must be set}
       VMQ_TOKEN_TTL: ${VMQ_TOKEN_TTL:?VMQ_TOKEN_TTL must be set}
-      VMQ_DB_HOST: mysql
-      VMQ_DB_PORT: 3306
+      VMQ_DB_HOST: ${VMQ_DB_HOST:-mysql}
+      VMQ_DB_PORT: ${VMQ_DB_PORT:-3306}
       VMQ_DB_NAME: ${VMQ_DB_NAME:-vmq}
       VMQ_DB_USER: ${VMQ_DB_USER:-vmqfox}
       VMQ_DB_PASSWORD: ${VMQ_DB_PASSWORD:?VMQ_DB_PASSWORD must be set}

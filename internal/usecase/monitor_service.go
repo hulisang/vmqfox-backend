@@ -9,7 +9,6 @@ import (
 	"errors"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/hulisang/vmqfox-backend/internal/domain/order"
@@ -21,17 +20,15 @@ import (
 const notificationTopic = "order.paid.notify"
 
 type HeartbeatInput struct {
-	Timestamp        string
-	Sign             string
-	LegacyCompatible bool
+	Timestamp string
+	Sign      string
 }
 
 type PaymentPushInput struct {
-	Timestamp        string
-	Type             string
-	Price            string
-	Sign             string
-	LegacyCompatible bool
+	Timestamp string
+	Type      string
+	Price     string
+	Sign      string
 }
 
 type PaymentPushResult struct {
@@ -41,10 +38,9 @@ type PaymentPushResult struct {
 }
 
 type NotificationPayload struct {
-	OrderID     string `json:"orderId"`
-	NotifyURL   string `json:"notifyUrl"`
-	NewForm     string `json:"newForm"`
-	LegacyQuery string `json:"legacyQuery"`
+	OrderID   string `json:"orderId"`
+	NotifyURL string `json:"notifyUrl"`
+	NewForm   string `json:"newForm"`
 }
 
 type MonitorServiceDeps struct {
@@ -236,48 +232,20 @@ func signedNotificationPayload(value order.Order, merchantKey string) Notificati
 		merchantKey,
 	))
 
-	legacyValues := url.Values{
-		"payId":       []string{value.PayID},
-		"param":       []string{value.Param},
-		"type":        []string{typeText},
-		"price":       []string{price},
-		"reallyPrice": []string{reallyPrice},
-	}
-	legacyValues.Set("sign", payment.CallbackSignLegacy(
-		value.PayID,
-		value.Param,
-		typeText,
-		price,
-		reallyPrice,
-		merchantKey,
-	))
-
 	return NotificationPayload{
-		OrderID:     value.OrderID,
-		NotifyURL:   value.NotifyURL,
-		NewForm:     newValues.Encode(),
-		LegacyQuery: legacyValues.Encode(),
+		OrderID:   value.OrderID,
+		NotifyURL: value.NotifyURL,
+		NewForm:   newValues.Encode(),
 	}
 }
 
 func validHeartbeatSign(input HeartbeatInput, key string) bool {
 	candidates := []string{payment.HeartbeatSign(input.Timestamp, key)}
-	if input.LegacyCompatible {
-		candidates = append(candidates,
-			payment.HeartbeatSign(strings.TrimSpace(input.Timestamp), key),
-			payment.HeartbeatSign(input.Timestamp, strings.TrimSpace(key)),
-		)
-	}
 	return matchesAnySign(input.Sign, candidates)
 }
 
 func validPushSign(input PaymentPushInput, key string) bool {
 	candidates := []string{payment.PushSign(input.Type, input.Price, input.Timestamp, key)}
-	if input.LegacyCompatible {
-		candidates = append(candidates,
-			payment.PushSign(strings.TrimSpace(input.Type), strings.TrimSpace(input.Price), strings.TrimSpace(input.Timestamp), strings.TrimSpace(key)),
-		)
-	}
 	return matchesAnySign(input.Sign, candidates)
 }
 
