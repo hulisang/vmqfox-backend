@@ -64,26 +64,33 @@ go build -o vmqfox-api ./cmd/vmqfox-api
 mysql -h 127.0.0.1 -u vmqgo -p vmqgo < database/schema.sql
 ```
 
-### 3. 生成管理员密码并写入
+### 3. 一键初始化 / 重置管理员账户
 
-> [!WARNING]
-> 为了安全，系统没有内置默认的管理账户和明文密码。您必须离线生成 Bcrypt 哈希并手动插入。
+> [!TIP]
+> 系统支持交互式终端安全输入（输入密码时不回显且支持二次确认校验），也可配合命令行参数实现自动化配置。
 
-合并后的 `vmqfox-api` 二进制文件内置了 `-hash-password` 参数来离线生成密码哈希。
+#### 方式 A：一键交互式初始化（推荐）
+在配置好 `.env` 且数据库已启动的情况下，直接运行：
 ```bash
-# 1. 离线生成 bcrypt 密码哈希 (如设置密码为: admin123)
-printf '%s\n' 'admin123' | ./vmqfox-api -hash-password
+# 本地直接运行
+./vmqfox-api -init-admin
 
-# 输出样例
-# $2a$10$G3QwZVKGrAHttWlZAenrueID8jEFyRpcwhdiGCrq3tCUd8xTqBrnK
-
-# 2. 将此哈希直接用 SQL 写入 admin_credentials 表中以激活管理员账户
-# 请将 <username> 与 <bcrypt-hash> 替换为您设定的用户名与刚刚输出的哈希值。
-INSERT INTO admin_credentials 
-  (id, username, password_hash, enabled, created_at, updated_at) 
-VALUES 
-  (1, 'admin', '$2a$10$G3QwZVKGrAHttWlZAenrueID8jEFyRpcwhdiGCrq3tCUd8xTqBrnK', 1, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6));
+# 或在 Docker Compose 环境下执行
+docker compose exec vmqfox-api ./vmqfox-api -init-admin
 ```
+按照终端交互提示输入用户名与密码即可完成一键校验、Bcrypt 哈希加密并直接入库。
+
+#### 方式 B：脚本/自动化非交互式初始化
+适用于 CI/CD 自动化或 Docker 初始化脚本：
+```bash
+# 方式 1：通过参数直接传入
+./vmqfox-api -init-admin -username admin -password 'YourSecurePassword123' -force
+
+# 方式 2：通过标准输入管道传入密码
+printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin -force
+```
+
+*(可选)* 若仍需纯离线生成 Bcrypt 哈希，可继续使用 `./vmqfox-api -hash-password`。
 
 ### 4. 使用 Docker Compose 一键启动
 根目录下提供了直接可用的部署骨架：
@@ -133,8 +140,8 @@ VALUES
   * `GET /api/order/return-url/:id` - 用户付款成功后的重定向回跳签名校验。
   * `GET /api/qrcode/generate` (及兼容 `ANY /enQrcode`) - 将收款支付链接极速生成为 PNG 图像输出 (`image/png`)。
 * **安卓监控端交互**：
-  * `POST /api/monitor/heart` (及兼容 `ANY /appHeart`) - 挂机 App 心跳同步，更新 `lastHeart` 时间。
-  * `POST /api/monitor/push` (及兼容 `ANY /appPush`) - 挂机 App 匹配通知栏到账信息推送至服务端，自动完成订单核销、释放价格锁并压入 Outbox 异步回调商户。
+  * `ANY /api/monitor/heart` - 挂机 App 心跳同步，更新 `lastHeart` 时间。
+  * `ANY /api/monitor/push` - 挂机 App 匹配通知栏到账信息推送至服务端，自动完成订单核销、释放价格锁并压入 Outbox 异步回调商户。
 
 ---
 

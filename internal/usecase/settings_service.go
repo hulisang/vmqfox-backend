@@ -73,8 +73,8 @@ func (s *SettingsService) Get(ctx context.Context) (SettingsView, error) {
 
 func (s *SettingsService) Update(ctx context.Context, input UpdateSettingsInput) error {
 	username := admin.NormalizeUsername(input.Username)
-	if username == "" || len([]byte(username)) > 128 {
-		return fail(CodeInvalidArgument, "管理员账号无效")
+	if username != "" && len([]byte(username)) > 128 {
+		return fail(CodeInvalidArgument, "管理员账号长度不能超过 128 个字节")
 	}
 	if input.MerchantKey == "" {
 		return fail(CodeInvalidArgument, "通讯密钥不能为空")
@@ -104,7 +104,9 @@ func (s *SettingsService) Update(ctx context.Context, input UpdateSettingsInput)
 		if err != nil {
 			return wrap(CodeDependency, "读取管理员凭据失败", err)
 		}
-		credential.Username = username
+		if username != "" {
+			credential.Username = username
+		}
 		credential.UpdatedAt = now
 		if passwordHash != "" {
 			credential.PasswordHash = passwordHash

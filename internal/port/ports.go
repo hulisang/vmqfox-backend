@@ -47,6 +47,7 @@ type AdminCredentialRepository interface {
 	Get(ctx context.Context) (admin.Credential, error)
 	GetForUpdate(ctx context.Context) (admin.Credential, error)
 	Update(ctx context.Context, value admin.Credential) error
+	Save(ctx context.Context, value admin.Credential) error
 }
 
 // TransactionManager 只负责事务边界。传入回调的 context 由适配器绑定事务连接。

@@ -399,6 +399,7 @@ func apiCheckOrderData(result usecase.CheckOrderResult) gin.H {
 	}
 	switch result.State {
 	case order.StatusPaid, order.StatusNotifyFailed:
+		data["state"] = int(order.StatusPaid)
 		data["redirectUrl"] = result.RedirectURL
 	case order.StatusClosed:
 		data["state"] = int(order.StatusClosed)

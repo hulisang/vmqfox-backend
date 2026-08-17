@@ -2,11 +2,14 @@ package mysql
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	drivermysql "github.com/go-sql-driver/mysql"
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // DSN 使用驱动官方配置编码，避免凭据或连接参数中的特殊字符破坏连接串。
@@ -33,7 +36,18 @@ func DSN(user, password, host string, port int, database string, params map[stri
 
 // Open 打开数据库连接并设置连接池；不会执行 AutoMigrate 或任何建表操作。
 func Open(dsn string, maxOpen, maxIdle int, maxLifetime time.Duration) (*gorm.DB, error) {
-	db, err := gorm.Open(gormmysql.Open(dsn), &gorm.Config{})
+	dbLogger := logger.New(
+		log.New(os.Stderr, "\r\n", log.LstdFlags),
+		logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true, // 忽略 RecordNotFound 正常业务日志，避免控制台误报
+			Colorful:                  false,
+		},
+	)
+	db, err := gorm.Open(gormmysql.Open(dsn), &gorm.Config{
+		Logger: dbLogger,
+	})
 	if err != nil {
 		return nil, err
 	}
