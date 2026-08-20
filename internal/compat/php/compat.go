@@ -2,8 +2,6 @@
 package php
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
@@ -99,22 +97,6 @@ func NormalizeNumber(s string) string {
 	}
 	return s
 }
-
-func md5Hex(s string) string { sum := md5.Sum([]byte(s)); return hex.EncodeToString(sum[:]) }
-
-// CreateSignNew 保留新版创建订单的五段格式；创建请求不包含 reallyPrice。
-func CreateSignNew(payID, param, typ, price, key string) string {
-	return md5Hex("payId=" + payID + "&param=" + param + "&type=" + typ + "&price=" + price + "&key=" + key)
-}
-
-func CallbackSignNew(payID, param, typ, price, reallyPrice, key string) string {
-	return md5Hex("payId=" + payID + "&param=" + param + "&type=" + typ + "&price=" + price + "&reallyPrice=" + reallyPrice + "&key=" + key)
-}
-
-func HeartbeatSign(timestamp, key string) string { return md5Hex(timestamp + key) }
-
-// PushSign 严格按 type+price+t+key 拼接后计算 MD5。
-func PushSign(typ, price, timestamp, key string) string { return md5Hex(typ + price + timestamp + key) }
 
 // FormatAmountCents 将分转换为两位小数金额字符串。
 func FormatAmountCents(cents int64) string { return fmt.Sprintf("%d.%02d", cents/100, abs(cents%100)) }

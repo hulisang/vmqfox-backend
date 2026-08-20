@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -156,7 +155,13 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 	if merchantKey == "" {
 		return CreateOrderResult{}, fail(CodeConfiguration, "系统未配置密钥")
 	}
+	if !validCallbackURL(input.NotifyURL) || !validCallbackURL(input.ReturnURL) {
+		return CreateOrderResult{}, fail(CodeInvalidArgument, "notifyUrl 与 returnUrl 只允许 http/https 地址")
+	}
 	if !validCreateSign(input, merchantKey) {
+		if usesLegacyCreateSign(input, merchantKey) {
+			return CreateOrderResult{}, fail(CodeDeprecatedSignAlgo, "检测到已废弃的 v1 签名，请升级商户插件至 v2（HMAC-SHA-256，签名域包含 notifyUrl 与 returnUrl）")
+		}
 		return CreateOrderResult{}, fail(CodeInvalidSignature, "签名错误")
 	}
 	if settings[setting.MonitorStateKey] != "1" {
@@ -351,7 +356,7 @@ func (s *OrderService) ReturnURL(ctx context.Context, orderID string) (ReturnURL
 	typeText := strconv.Itoa(int(value.Type))
 	price := amountText(value.PriceText, value.PriceCents)
 	reallyPrice := amountText(value.ReallyPriceText, value.ReallyPriceCents)
-	signNew := payment.CallbackSignNew(value.PayID, value.Param, typeText, price, reallyPrice, merchantKey)
+	signNew := payment.CallbackSignV2(value.PayID, value.Param, typeText, price, reallyPrice, merchantKey)
 	baseQuery := "payId=" + url.QueryEscape(value.PayID) +
 		"&param=" + url.QueryEscape(value.Param) +
 		"&type=" + url.QueryEscape(typeText) +
@@ -455,8 +460,34 @@ func (s *OrderService) readCloseMinutes(ctx context.Context) (int, error) {
 }
 
 func validCreateSign(input CreateOrderInput, key string) bool {
-	expected := payment.CreateSignNew(input.PayID, input.Param, input.Type, input.Price, key)
-	return len(expected) == len(input.Sign) && subtle.ConstantTimeCompare([]byte(expected), []byte(input.Sign)) == 1
+	expected := payment.CreateSignV2(
+		input.PayID,
+		input.Param,
+		input.Type,
+		input.Price,
+		input.NotifyURL,
+		input.ReturnURL,
+		key,
+	)
+	return payment.SignEqual(input.Sign, expected)
+}
+
+// usesLegacyCreateSign 用于把「旧 SDK 未升级」与「密钥配错」区分开，只影响报错文案，不构成放行路径。
+func usesLegacyCreateSign(input CreateOrderInput, key string) bool {
+	legacy := payment.LegacyCreateSign(input.PayID, input.Param, input.Type, input.Price, key)
+	return payment.SignEqual(input.Sign, legacy)
+}
+
+// validCallbackURL 限制回调与回跳地址只能是 http(s)，阻断 javascript: 等伪协议经支付页跳转执行。
+func validCallbackURL(raw string) bool {
+	if raw == "" {
+		return true
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func closeMinutes(value string) int {
@@ -705,7 +736,7 @@ func reissueNotificationPayload(value order.Order, merchantKey string) Notificat
 		"price":       []string{price},
 		"reallyPrice": []string{reallyPrice},
 	}
-	newValues.Set("sign", payment.CallbackSignNew(
+	newValues.Set("sign", payment.CallbackSignV2(
 		value.PayID,
 		value.Param,
 		typeText,

@@ -160,4 +160,3 @@ func (n *Notifier) Send(ctx context.Context, notification port.Notification) (po
 }
 
 var _ port.Notifier = (*Notifier)(nil)
-

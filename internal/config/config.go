@@ -81,6 +81,7 @@ type JobConfig struct {
 	LifecycleAttemptTimeout    time.Duration
 	LifecycleBatchSize         int
 	MonitorHeartbeatTimeout    time.Duration
+	MonitorSignTTL             time.Duration
 }
 
 func (c RuntimeConfig) CanWrite() bool {
@@ -192,6 +193,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	monitorSignTTL, err := duration("VMQ_MONITOR_SIGN_TTL", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
 
 	outboundAllowedCIDRs, outboundAllowedIPs := parseAllowCIDR(first([]string{"VMQ_NOTIFY_ALLOW_CIDR", "NOTIFY_ALLOW_CIDR"}, ""))
 
@@ -234,6 +239,7 @@ func Load() (Config, error) {
 			LifecycleAttemptTimeout:    lifecycleAttemptTimeout,
 			LifecycleBatchSize:         lifecycleBatchSize,
 			MonitorHeartbeatTimeout:    monitorHeartbeatTimeout,
+			MonitorSignTTL:             monitorSignTTL,
 		},
 		Outbound: OutboundConfig{
 			AllowedCIDRs: outboundAllowedCIDRs,

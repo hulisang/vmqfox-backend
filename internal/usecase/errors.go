@@ -8,6 +8,8 @@ const (
 	CodeInvalidArgument    ErrorCode = "invalid_argument"
 	CodeInvalidCredentials ErrorCode = "invalid_credentials"
 	CodeInvalidSignature   ErrorCode = "invalid_signature"
+	CodeDeprecatedSignAlgo ErrorCode = "deprecated_signature_algorithm"
+	CodeStaleTimestamp     ErrorCode = "stale_timestamp"
 	CodeConfiguration      ErrorCode = "configuration_error"
 	CodeMonitorOffline     ErrorCode = "monitor_offline"
 	CodeDuplicateOrder     ErrorCode = "duplicate_order"

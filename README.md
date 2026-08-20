@@ -40,6 +40,10 @@
 | `VMQ_DB_CHARSET` | `utf8mb4` | 字符集 |
 | `VMQ_LIFECYCLE_POLL_INTERVAL`| `10s` | 订单超时关闭扫描周期 |
 | `VMQ_NOTIFICATION_POLL_INTERVAL`| `2s` | Outbox 推送通知扫描周期 |
+| `VMQ_ALLOWED_ORIGIN` | 同 `VMQ_FRONTEND_URL` | 允许跨域访问的精确 Origin，不接受通配 |
+| `VMQ_MONITOR_HEARTBEAT_TIMEOUT` | `3m` | 超过该时长未收到心跳即判定挂机端离线 |
+| `VMQ_MONITOR_SIGN_TTL` | `5m` | 挂机端心跳/推送签名时间戳的双向允许偏移窗口，超窗按重放拒绝 |
+| `VMQ_NOTIFY_ALLOW_CIDR` | 空 | 出站 Webhook 的内网 IP/CIDR 精确白名单，留空表示禁止一切私网与回环目标 |
 
 ---
 
@@ -132,7 +136,7 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
   * `GET /api/config/monitor` - 读取当前系统配置的监控心跳状态。
   * `POST /api/config/monitor` - 设置/更改监控在线指示参数。
 
-### 3. 公共支付网关与监控协议 (需商户 MD5 验签)
+### 3. 公共支付网关与监控协议 (需商户 v2 HMAC-SHA-256 验签)
 * **网关链路**：
   * `POST /api/order/create` (及兼容 `ANY /createOrder`) - 传入商户单号、金额、类型，验签后自动匹配二维码，占用价格锁。
   * `GET /api/order/get/:id` (及兼容 `ANY /getOrder`) - 获取前台收银台支付展示参数（包含reallyPrice、二维码路径、超时秒数）。
@@ -142,6 +146,31 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
 * **安卓监控端交互**：
   * `ANY /api/monitor/heart` - 挂机 App 心跳同步，更新 `lastHeart` 时间。
   * `ANY /api/monitor/push` - 挂机 App 匹配通知栏到账信息推送至服务端，自动完成订单核销、释放价格锁并压入 Outbox 异步回调商户。
+
+### 4. 签名协议 v2（HMAC-SHA-256）
+
+通讯密钥作为 HMAC 密钥参与运算，不再拼接进签名明文；结果取 64 位小写 hex，服务端以常量时间比较。
+v1 的 MD5 签名已停止受理，仅保留用于识别未升级的旧 SDK 并给出明确报错。
+
+| 场景 | 待签 canonical 串 |
+| :--- | :--- |
+| 建单 | `payId=<商户单号>&param=<param>&type=<1\|2>&price=<两位小数>&notifyUrl=<notifyUrl>&returnUrl=<returnUrl>` |
+| 回调 | `payId=<商户单号>&param=<param>&type=<1\|2>&price=<两位小数>&reallyPrice=<两位小数>` |
+| 心跳 | `t=<毫秒时间戳>` |
+| 推送 | `type=<1\|2>&price=<两位小数>&t=<毫秒时间戳>` |
+
+约束：
+
+* 金额一律定标为两位小数，且签名串与请求参数必须使用同一份文本。
+* `notifyUrl` / `returnUrl` 未传时以空串参与签名，且只接受 `http(s)` 协议。
+* 心跳与推送的 `t` 为毫秒 epoch，偏移超出 `VMQ_MONITOR_SIGN_TTL` 即按重放拒绝。
+* 三端（Go 服务端、PHP 商户插件 `vmqfox_plugin.php`、安卓挂机端 `MonitorSign.java`）共用同一组黄金向量，
+  固化在 `internal/domain/payment/payment_test.go`；前端联调页 `testOrder` 会在界面上自检浏览器端实现是否与该组向量一致。
+* 独立复算方式：
+
+```bash
+printf '%s' 't=1773500000000' | openssl dgst -sha256 -hmac 'testkey123456' -hex
+```
 
 ---
 

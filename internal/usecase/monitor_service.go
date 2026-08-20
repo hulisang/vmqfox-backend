@@ -3,12 +3,12 @@ package usecase
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hulisang/vmqfox-backend/internal/domain/order"
@@ -18,6 +18,9 @@ import (
 )
 
 const notificationTopic = "order.paid.notify"
+
+// defaultMonitorSignTTL 是挂机端签名时间戳的默认允许偏移窗口。
+const defaultMonitorSignTTL = 5 * time.Minute
 
 type HeartbeatInput struct {
 	Timestamp string
@@ -51,6 +54,7 @@ type MonitorServiceDeps struct {
 	Events       port.PaymentEventRepository
 	Outbox       port.OutboxRepository
 	Clock        port.Clock
+	SignTTL      time.Duration
 }
 
 type MonitorService struct {
@@ -61,12 +65,18 @@ type MonitorService struct {
 	events       port.PaymentEventRepository
 	outbox       port.OutboxRepository
 	clock        port.Clock
+	signTTL      time.Duration
 }
 
 func NewMonitorService(deps MonitorServiceDeps) (*MonitorService, error) {
 	if deps.Transactions == nil || deps.Orders == nil || deps.PriceLocks == nil || deps.Settings == nil ||
 		deps.Events == nil || deps.Outbox == nil || deps.Clock == nil {
 		return nil, errors.New("监控用例依赖不完整")
+	}
+	signTTL := deps.SignTTL
+	if signTTL <= 0 {
+		// 配置缺失时回退到默认窗口，避免误配置把重放保护整体关掉。
+		signTTL = defaultMonitorSignTTL
 	}
 	return &MonitorService{
 		transactions: deps.Transactions,
@@ -76,6 +86,7 @@ func NewMonitorService(deps MonitorServiceDeps) (*MonitorService, error) {
 		events:       deps.Events,
 		outbox:       deps.Outbox,
 		clock:        deps.Clock,
+		signTTL:      signTTL,
 	}, nil
 }
 
@@ -91,10 +102,16 @@ func (s *MonitorService) Heartbeat(ctx context.Context, input HeartbeatInput) er
 		return wrap(CodeDependency, "读取系统密钥失败", err)
 	}
 	if !validHeartbeatSign(input, key) {
+		if usesLegacyHeartbeatSign(input, key) {
+			return fail(CodeDeprecatedSignAlgo, "检测到已废弃的 v1 签名，请升级挂机端 App 至 v2（HMAC-SHA-256）")
+		}
 		return fail(CodeInvalidSignature, "密钥错误---请检查配置数据！")
 	}
 
 	now := s.clock.Now()
+	if err := s.checkTimestampFreshness(input.Timestamp, now); err != nil {
+		return err
+	}
 	return s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
 		if err := s.settings.SetMany(txCtx, map[string]string{
 			setting.LastHeartKey:    strconv.FormatInt(now.Unix(), 10),
@@ -128,10 +145,16 @@ func (s *MonitorService) Push(ctx context.Context, input PaymentPushInput) (Paym
 		return PaymentPushResult{}, wrap(CodeDependency, "读取系统密钥失败", err)
 	}
 	if !validPushSign(input, key) {
+		if usesLegacyPushSign(input, key) {
+			return PaymentPushResult{}, fail(CodeDeprecatedSignAlgo, "检测到已废弃的 v1 签名，请升级挂机端 App 至 v2（HMAC-SHA-256）")
+		}
 		return PaymentPushResult{}, fail(CodeInvalidSignature, "签名校验不通过")
 	}
 
 	now := s.clock.Now()
+	if err := s.checkTimestampFreshness(input.Timestamp, now); err != nil {
+		return PaymentPushResult{}, err
+	}
 	eventKey := paymentEventKey(input.Type, input.Price, input.Timestamp)
 	result := PaymentPushResult{}
 	err = s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
@@ -223,7 +246,7 @@ func signedNotificationPayload(value order.Order, merchantKey string) Notificati
 		"price":       []string{price},
 		"reallyPrice": []string{reallyPrice},
 	}
-	newValues.Set("sign", payment.CallbackSignNew(
+	newValues.Set("sign", payment.CallbackSignV2(
 		value.PayID,
 		value.Param,
 		typeText,
@@ -240,22 +263,45 @@ func signedNotificationPayload(value order.Order, merchantKey string) Notificati
 }
 
 func validHeartbeatSign(input HeartbeatInput, key string) bool {
-	candidates := []string{payment.HeartbeatSign(input.Timestamp, key)}
-	return matchesAnySign(input.Sign, candidates)
+	return payment.SignEqual(input.Sign, payment.HeartbeatSignV2(input.Timestamp, key))
 }
 
 func validPushSign(input PaymentPushInput, key string) bool {
-	candidates := []string{payment.PushSign(input.Type, input.Price, input.Timestamp, key)}
-	return matchesAnySign(input.Sign, candidates)
+	return payment.SignEqual(input.Sign, payment.PushSignV2(input.Type, input.Price, input.Timestamp, key))
 }
 
-func matchesAnySign(actual string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if len(actual) == len(candidate) && subtle.ConstantTimeCompare([]byte(actual), []byte(candidate)) == 1 {
-			return true
-		}
+// 下面两个 legacy 判定只用于区分「挂机端未升级」与「密钥配错」，不构成任何放行路径。
+func usesLegacyHeartbeatSign(input HeartbeatInput, key string) bool {
+	return payment.SignEqual(input.Sign, payment.LegacyHeartbeatSign(input.Timestamp, key))
+}
+
+func usesLegacyPushSign(input PaymentPushInput, key string) bool {
+	return payment.SignEqual(input.Sign, payment.LegacyPushSign(input.Type, input.Price, input.Timestamp, key))
+}
+
+// parseMonitorTimestamp 解析挂机端时间戳；挂机端发送的是毫秒（Java new Date().getTime()）。
+func parseMonitorTimestamp(raw string) (time.Time, bool) {
+	millis, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || millis <= 0 {
+		return time.Time{}, false
 	}
-	return false
+	return time.UnixMilli(millis), true
+}
+
+// checkTimestampFreshness 双向限制时钟偏移，使被截获的心跳或推送无法在窗口外重放。
+func (s *MonitorService) checkTimestampFreshness(raw string, now time.Time) error {
+	moment, ok := parseMonitorTimestamp(raw)
+	if !ok {
+		return fail(CodeInvalidArgument, "时间戳格式错误")
+	}
+	skew := now.Sub(moment)
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew > s.signTTL {
+		return fail(CodeStaleTimestamp, "请求时间戳超出允许窗口，请校准挂机端设备时间")
+	}
+	return nil
 }
 
 func paymentEventKey(paymentType, price, timestamp string) string {

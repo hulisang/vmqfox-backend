@@ -116,6 +116,7 @@ func New(cfg config.Config, db *gorm.DB, tokenParser *auth.TokenService, logger 
 		Events:       paymentEvents,
 		Outbox:       outbox,
 		Clock:        clock,
+		SignTTL:      cfg.Jobs.MonitorSignTTL,
 	})
 	if err != nil {
 		return nil, err
