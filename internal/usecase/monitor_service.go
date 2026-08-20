@@ -217,14 +217,14 @@ func signedNotificationPayload(value order.Order, merchantKey string) Notificati
 	reallyPrice := amountText(value.ReallyPriceText, value.ReallyPriceCents)
 
 	newValues := url.Values{
-		"payId":       []string{value.OrderID},
+		"payId":       []string{value.PayID},
 		"param":       []string{value.Param},
 		"type":        []string{typeText},
 		"price":       []string{price},
 		"reallyPrice": []string{reallyPrice},
 	}
 	newValues.Set("sign", payment.CallbackSignNew(
-		value.OrderID,
+		value.PayID,
 		value.Param,
 		typeText,
 		price,

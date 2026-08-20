@@ -25,6 +25,12 @@ type Config struct {
 	Token    TokenConfig
 	Runtime  RuntimeConfig
 	Jobs     JobConfig
+	Outbound OutboundConfig
+}
+
+type OutboundConfig struct {
+	AllowedCIDRs []*net.IPNet
+	AllowedIPs   []net.IP
 }
 
 type ServerConfig struct {
@@ -187,6 +193,8 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	outboundAllowedCIDRs, outboundAllowedIPs := parseAllowCIDR(first([]string{"VMQ_NOTIFY_ALLOW_CIDR", "NOTIFY_ALLOW_CIDR"}, ""))
+
 	return Config{
 		Server: ServerConfig{
 			Host:              first([]string{"VMQ_SERVER_HOST"}, "0.0.0.0"),
@@ -226,6 +234,10 @@ func Load() (Config, error) {
 			LifecycleAttemptTimeout:    lifecycleAttemptTimeout,
 			LifecycleBatchSize:         lifecycleBatchSize,
 			MonitorHeartbeatTimeout:    monitorHeartbeatTimeout,
+		},
+		Outbound: OutboundConfig{
+			AllowedCIDRs: outboundAllowedCIDRs,
+			AllowedIPs:   outboundAllowedIPs,
 		},
 	}, nil
 }
@@ -283,6 +295,32 @@ func requiredDuration(names []string) (time.Duration, error) {
 		return 0, err
 	}
 	return time.Duration(seconds) * time.Second, nil
+}
+
+func parseAllowCIDR(raw string) ([]*net.IPNet, []net.IP) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var cidrs []*net.IPNet
+	var ips []net.IP
+	for _, item := range strings.Split(raw, ",") {
+		token := strings.TrimSpace(item)
+		if token == "" {
+			continue
+		}
+		if strings.Contains(token, "/") {
+			_, ipNet, err := net.ParseCIDR(token)
+			if err == nil && ipNet != nil {
+				cidrs = append(cidrs, ipNet)
+			}
+		} else {
+			ip := net.ParseIP(token)
+			if ip != nil {
+				ips = append(ips, ip)
+			}
+		}
+	}
+	return cidrs, ips
 }
 
 func loadDotEnv() {

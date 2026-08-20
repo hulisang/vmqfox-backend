@@ -38,7 +38,6 @@ jobs:
           mkdir -p dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "dist/vmqfox-api-linux-$arch" ./cmd/vmqfox-api
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "dist/vmqfox-password-linux-$arch" ./cmd/vmqfox-password
           done
           cp database/schema.sql env.example dist/
           tar -czf "vmqfox-backend-${{ inputs.tag_name }}.tar.gz" -C dist .

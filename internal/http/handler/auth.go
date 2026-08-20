@@ -89,10 +89,12 @@ func userInfoHandler(settings SettingsManager) gin.HandlerFunc {
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", gin.H{
 			"userId":      1,
 			"username":    result.Username,
+			"userName":    result.Username,
 			"realName":    "V免签管理员",
 			"avatar":      "",
 			"roles":       []string{"admin"},
 			"permissions": []string{"dashboard", "order", "qrcode", "setting", "monitor"},
+			"buttons":     []string{"dashboard", "order", "qrcode", "setting", "monitor"},
 		}))
 	}
 }

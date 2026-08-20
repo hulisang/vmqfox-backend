@@ -127,7 +127,7 @@ func New(cfg config.Config, db *gorm.DB, tokenParser *auth.TokenService, logger 
 			Transactions: transactions,
 			Orders:       orders,
 			Outbox:       outbox,
-			Notifier:     httpclient.NewNotifier(nil),
+			Notifier:     httpclient.NewNotifier(nil, cfg.Outbound),
 			Clock:        clock,
 		})
 		if serviceErr != nil {

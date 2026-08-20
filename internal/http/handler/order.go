@@ -386,16 +386,12 @@ func apiOrderViewData(result usecase.OrderView) gin.H {
 		"timeOut":          result.TimeoutMinutes,
 		"date":             value.CreatedAt.Unix(),
 		"remainingSeconds": result.RemainingSeconds,
-		"return_url":       value.ReturnURL,
-		"param":            value.Param,
 	}
 }
 
 func apiCheckOrderData(result usecase.CheckOrderResult) gin.H {
 	data := gin.H{
 		"remainingSeconds": result.RemainingSeconds,
-		"return_url":       result.ReturnURL,
-		"param":            result.Param,
 	}
 	switch result.State {
 	case order.StatusPaid, order.StatusNotifyFailed:
