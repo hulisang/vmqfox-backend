@@ -1,6 +1,7 @@
 package order
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -52,6 +53,18 @@ func CanReissue(status Status) bool {
 }
 
 var ErrInvalidAmount = errors.New("金额格式无效")
+
+// PublicTokenLength 固定公开订单令牌长度，令牌只允许小写十六进制字符。
+const PublicTokenLength = 64
+
+// IsValidPublicToken 校验公开令牌格式，避免把内部订单号当作公开凭据查询。
+func IsValidPublicToken(value string) bool {
+	if len(value) != PublicTokenLength {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil && strings.ToLower(value) == value
+}
 
 func ParseAmountCents(value string) (int64, error) {
 	text := strings.TrimSpace(value)
@@ -142,6 +155,7 @@ func IsExpired(status Status, createdAt time.Time, timeout time.Duration, now ti
 type Order struct {
 	ID               int64
 	OrderID          string
+	PublicToken      string
 	PayID            string
 	Type             payment.Type
 	PriceCents       int64

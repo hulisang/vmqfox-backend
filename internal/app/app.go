@@ -61,6 +61,7 @@ func New(cfg config.Config, db *gorm.DB, tokenParser *auth.TokenService, logger 
 	paymentEvents := mysql.NewPaymentEventRepository(db)
 	outbox := mysql.NewOutboxRepository(db)
 	clock := system.Clock{}
+	publicTokens := system.PublicTokenGenerator{}
 	passwords := auth.NewBcryptPasswordHasher()
 	qrImageCodec := qrcodeimage.New()
 
@@ -103,6 +104,7 @@ func New(cfg config.Config, db *gorm.DB, tokenParser *auth.TokenService, logger 
 		Outbox:       outbox,
 		Clock:        clock,
 		OrderIDs:     system.OrderIDGenerator{},
+		PublicTokens: publicTokens,
 		FrontendURL:  cfg.Server.FrontendURL,
 	})
 	if err != nil {
@@ -116,6 +118,7 @@ func New(cfg config.Config, db *gorm.DB, tokenParser *auth.TokenService, logger 
 		Events:       paymentEvents,
 		Outbox:       outbox,
 		Clock:        clock,
+		PublicTokens: publicTokens,
 		SignTTL:      cfg.Jobs.MonitorSignTTL,
 	})
 	if err != nil {
@@ -181,6 +184,7 @@ func New(cfg config.Config, db *gorm.DB, tokenParser *auth.TokenService, logger 
 		TokenParser: tokenParser,
 		Origin:      cfg.Server.AllowedOrigin,
 		RuntimeMode: middleware.RuntimeMode(cfg.Runtime.Mode),
+		RateLimit:   cfg.RateLimit,
 		Logger:      logger,
 	})
 

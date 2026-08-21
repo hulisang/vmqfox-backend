@@ -3,7 +3,7 @@
 本项目是针对个人开发者的免签支付网关。现已完成**全面重构**，从原 ThinkPHP 8 版本彻底收敛为 **纯 Go 语言版本 (Go-only)**，移除了对 PHP、PHP-FPM、Composer 以及外部 Redis 的任何依赖。
 
 > [!IMPORTANT]
-> **关于数据兼容性**：本项目仅支持全新空 MySQL/MariaDB 数据库实例初始化，不迁移、不读取、亦不兼容任何旧版 PHP 服务端的数据结构。
+> **关于数据兼容性**：本项目不迁移、不读取、亦不兼容旧版 PHP 服务端的数据结构。已运行的 Go-only 订单库升级到引入 `public_token` 的版本时，必须在新 API 对外启动前执行本文的公开令牌迁移命令。
 
 ---
 
@@ -43,6 +43,14 @@
 | `VMQ_ALLOWED_ORIGIN` | 同 `VMQ_FRONTEND_URL` | 允许跨域访问的精确 Origin，不接受通配 |
 | `VMQ_MONITOR_HEARTBEAT_TIMEOUT` | `3m` | 超过该时长未收到心跳即判定挂机端离线 |
 | `VMQ_MONITOR_SIGN_TTL` | `5m` | 挂机端心跳/推送签名时间戳的双向允许偏移窗口，超窗按重放拒绝 |
+| `VMQ_RATE_LOGIN_LIMIT` / `VMQ_RATE_LOGIN_WINDOW` | `10` / `1m` | 登录端点的每客户端固定窗口额度 |
+| `VMQ_RATE_CREATE_LIMIT` / `VMQ_RATE_CREATE_WINDOW` | `30` / `1m` | 建单端点的每客户端固定窗口额度 |
+| `VMQ_RATE_PUBLIC_READ_LIMIT` / `VMQ_RATE_PUBLIC_READ_WINDOW` | `60` / `1m` | 公开查询、状态和回跳端点的每 IP 固定窗口额度 |
+| `VMQ_RATE_PUBLIC_TOKEN_LIMIT` / `VMQ_RATE_PUBLIC_TOKEN_WINDOW` | `60` / `1m` | 同一公开令牌的独立固定窗口额度 |
+| `VMQ_RATE_QRCODE_LIMIT` / `VMQ_RATE_QRCODE_WINDOW` | `30` / `1m` | 二维码生成端点的每客户端固定窗口额度 |
+| `VMQ_RATE_MONITOR_HEART_LIMIT` / `VMQ_RATE_MONITOR_HEART_WINDOW` | `120` / `1m` | 挂机端心跳的每客户端固定窗口额度 |
+| `VMQ_RATE_MONITOR_PUSH_LIMIT` / `VMQ_RATE_MONITOR_PUSH_WINDOW` | `60` / `1m` | 挂机端推送的每客户端固定窗口额度 |
+| `VMQ_TRUSTED_PROXY_CIDR` | 空 | 真实反向代理的 IP/CIDR 列表。留空时仅以 TCP 对端识别客户端，绝不信任自带的转发头；通过 Compose 网关部署时必须填写实际网关网段，否则所有客户端会按网关地址共用限流桶 |
 | `VMQ_NOTIFY_ALLOW_CIDR` | 空 | 出站 Webhook 的内网 IP/CIDR 精确白名单，留空表示禁止一切私网与回环目标 |
 
 ---
@@ -68,7 +76,25 @@ go build -o vmqfox-api ./cmd/vmqfox-api
 mysql -h 127.0.0.1 -u vmqgo -p vmqgo < database/schema.sql
 ```
 
-### 3. 一键初始化 / 重置管理员账户
+### 3. 公开订单令牌迁移（升级已有 Go-only 订单库时必做）
+
+新版本以 64 位小写十六进制的 `publicToken` 作为匿名收银台凭据，并立即停用旧 `orderId` 公开链接。迁移命令会安全地添加 `orders.public_token`、分批回填随机令牌、创建唯一索引并设置非空约束；重复执行不会改写已有效的令牌。
+
+> [!WARNING]
+> 先在维护窗口运行迁移并确认成功，再同时发布后端与前端。旧订单号支付链接会失效，不能作为新版本的兼容入口。
+
+```bash
+# 已构建二进制：读取 .env 后执行可重复迁移
+./vmqfox-api -migrate-public-tokens
+
+# Docker Compose：保持 MySQL 已启动，但在新 API 对外启动前运行一次性迁移容器
+# docker compose up -d mysql
+# docker compose run --rm --no-deps vmqfox-api /usr/local/bin/vmqfox-api -migrate-public-tokens
+```
+
+迁移完成后核验 `orders.public_token` 均为非空、唯一的 64 位小写十六进制值，再启动或更新 API 与前端服务。
+
+### 4. 一键初始化 / 重置管理员账户
 
 > [!TIP]
 > 系统支持交互式终端安全输入（输入密码时不回显且支持二次确认校验），也可配合命令行参数实现自动化配置。
@@ -96,7 +122,7 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
 
 *(可选)* 若仍需纯离线生成 Bcrypt 哈希，可继续使用 `./vmqfox-api -hash-password`。
 
-### 4. 使用 Docker Compose 一键启动
+### 5. 使用 Docker Compose 一键启动
 根目录下提供了直接可用的部署骨架：
 1. 拷贝 `env.example` 到 `.env` 并填写其中的参数（主要是数据库密码、Token 签名秘钥等）。
 2. 执行启动指令：
@@ -136,13 +162,16 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
   * `GET /api/config/monitor` - 读取当前系统配置的监控心跳状态。
   * `POST /api/config/monitor` - 设置/更改监控在线指示参数。
 
-### 3. 公共支付网关与监控协议 (需商户 v2 HMAC-SHA-256 验签)
+### 3. 公共支付网关与监控协议
+
+建单与监控端请求需商户 v2 HMAC-SHA-256 验签；匿名收银台读取请求使用 `publicToken` 作为持有式凭据。
 * **网关链路**：
-  * `POST /api/order/create` (及兼容 `ANY /createOrder`) - 传入商户单号、金额、类型，验签后自动匹配二维码，占用价格锁。
-  * `GET /api/order/get/:id` (及兼容 `ANY /getOrder`) - 获取前台收银台支付展示参数（包含reallyPrice、二维码路径、超时秒数）。
-  * `GET /api/order/check/:id` (及兼容 `ANY /checkOrder`) - 异步轮询订单状态。
-  * `GET /api/order/return-url/:id` - 用户付款成功后的重定向回跳签名校验。
-  * `GET /api/qrcode/generate` (及兼容 `ANY /enQrcode`) - 将收款支付链接极速生成为 PNG 图像输出 (`image/png`)。
+  * `POST /api/order/create` - 传入商户单号、金额、类型，验签后自动匹配二维码，占用价格锁；响应中的 `publicToken` 是唯一的匿名收银台凭据。
+  * `GET /api/order/get/:publicToken` - 获取前台收银台支付展示参数；只接受 64 位随机公开令牌，响应不包含内部订单号、回调地址或透传参数。
+  * `GET /api/order/check/:publicToken` - 轮询订单状态；只返回状态和剩余时间，不下发回跳地址。
+  * `GET /api/order/return-url/:publicToken` - 订单支付成功后才返回服务端生成并签名的回跳地址。
+  * `GET /api/qrcode/generate` - 将收款支付链接极速生成为 PNG 图像输出 (`image/png`)。
+  * 公开 `get`、`check`、`return-url` 路径不兼容旧 `orderId`；无效格式与不存在的令牌均返回一致的“订单不存在”业务响应。
 * **安卓监控端交互**：
   * `ANY /api/monitor/heart` - 挂机 App 心跳同步，更新 `lastHeart` 时间。
   * `ANY /api/monitor/push` - 挂机 App 匹配通知栏到账信息推送至服务端，自动完成订单核销、释放价格锁并压入 Outbox 异步回调商户。

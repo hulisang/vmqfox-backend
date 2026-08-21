@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hulisang/vmqfox-backend/internal/config"
 	"github.com/hulisang/vmqfox-backend/internal/http/handler"
 	"github.com/hulisang/vmqfox-backend/internal/http/middleware"
 )
@@ -14,6 +15,7 @@ type RouterDeps struct {
 	TokenParser middleware.TokenParser
 	Origin      string
 	RuntimeMode middleware.RuntimeMode
+	RateLimit   config.RateLimitConfig
 	Logger      *log.Logger
 }
 
@@ -26,11 +28,35 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	if deps.Logger == nil {
 		deps.Logger = log.Default()
 	}
+	if deps.RateLimit.Login.Limit < 1 {
+		defaults := config.DefaultRateLimitConfig()
+		defaults.TrustedCIDRs = deps.RateLimit.TrustedCIDRs
+		defaults.TrustedIPs = deps.RateLimit.TrustedIPs
+		deps.RateLimit = defaults
+	}
+
+	// Gin 默认信任所有代理；这里显式收敛为同一份白名单，避免未来使用 c.ClientIP 时信任伪造转发头。
+	trustedProxies := make([]string, 0, len(deps.RateLimit.TrustedCIDRs)+len(deps.RateLimit.TrustedIPs))
+	for _, trustedIP := range deps.RateLimit.TrustedIPs {
+		if trustedIP != nil {
+			trustedProxies = append(trustedProxies, trustedIP.String())
+		}
+	}
+	for _, trustedCIDR := range deps.RateLimit.TrustedCIDRs {
+		if trustedCIDR != nil {
+			trustedProxies = append(trustedProxies, trustedCIDR.String())
+		}
+	}
+	if err := r.SetTrustedProxies(trustedProxies); err != nil {
+		deps.Logger.Printf("可信代理配置无效，已禁用转发头解析: %v", err)
+		_ = r.SetTrustedProxies(nil)
+	}
+	clientIPResolver := middleware.NewClientIPResolver(deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs)
 
 	r.Use(
 		middleware.RequestMetadata(),
 		middleware.Recovery(deps.Logger),
-		middleware.AccessLog(deps.Logger),
+		middleware.AccessLog(deps.Logger, clientIPResolver),
 		middleware.CORS(deps.Origin),
 	)
 
@@ -144,7 +170,7 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 func registerAPI(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
 	api := r.Group("/api")
 
-	api.POST("/auth/login", h.Login)
+	api.POST("/auth/login", middleware.NewIPRateLimit(deps.RateLimit.Login, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs), h.Login)
 	api.POST("/auth/logout", middleware.TokenAuth(deps.TokenParser), h.Logout)
 
 	// 管理读写接口统一使用新 Token；只读模式只允许其中的读请求。
@@ -178,19 +204,44 @@ func registerAPI(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
 	management.POST("/config/save", h.UpdateSettings)
 	management.POST("/config/monitor", h.UpdateMonitor)
 
-	// 商户订单创建和支付页查询不继承管理 Token；创建即使使用 GET 也始终按写请求保护。
+	// 公开支付端点只接受高熵 token；内部 order_id 仅保留在已鉴权管理端路由中。
 	public := api.Group("")
-	public.Any("/order/create", middleware.WriteGuardAlways(deps.RuntimeMode), h.Orders.CreateAPI)
-	public.GET("/order/get/:id", h.Orders.GetAPI)
-	public.GET("/order/check/:id", h.Orders.CheckAPI)
-	public.GET("/order/return-url/:id", h.Orders.ReturnURLAPI)
-	public.GET("/qrcode/generate", h.QRCodes.GenerateAPI)
+	public.Any("/order/create",
+		middleware.NewIPRateLimit(deps.RateLimit.Create, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+		middleware.WriteGuardAlways(deps.RuntimeMode),
+		h.Orders.CreateAPI,
+	)
+	public.GET("/order/get/:id",
+		middleware.NewIPRateLimit(deps.RateLimit.PublicRead, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+		middleware.NewTokenRateLimit(deps.RateLimit.PublicToken),
+		h.Orders.GetAPI,
+	)
+	public.GET("/order/check/:id",
+		middleware.NewIPRateLimit(deps.RateLimit.PublicRead, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+		middleware.NewTokenRateLimit(deps.RateLimit.PublicToken),
+		h.Orders.CheckAPI,
+	)
+	public.GET("/order/return-url/:id",
+		middleware.NewIPRateLimit(deps.RateLimit.PublicRead, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+		middleware.NewTokenRateLimit(deps.RateLimit.PublicToken),
+		h.Orders.ReturnURLAPI,
+	)
+	public.GET("/qrcode/generate",
+		middleware.NewIPRateLimit(deps.RateLimit.QRCode, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+		h.QRCodes.GenerateAPI,
+	)
 	management.POST("/order/close/:id", h.Orders.CloseAPI)
 
 }
 
 func registerMonitor(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
 	group := r.Group("/api/monitor", middleware.WriteGuardAlways(deps.RuntimeMode))
-	group.Any("/heart", h.Monitor.HeartbeatAPI)
-	group.Any("/push", h.Monitor.PushAPI)
+	group.Any("/heart",
+		middleware.NewIPRateLimit(deps.RateLimit.MonitorHeart, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+		h.Monitor.HeartbeatAPI,
+	)
+	group.Any("/push",
+		middleware.NewIPRateLimit(deps.RateLimit.MonitorPush, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+		h.Monitor.PushAPI,
+	)
 }

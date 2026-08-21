@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/hulisang/vmqfox-backend/internal/adapter/mysql"
+	"github.com/hulisang/vmqfox-backend/internal/adapter/system"
 	"github.com/hulisang/vmqfox-backend/internal/app"
 	"github.com/hulisang/vmqfox-backend/internal/auth"
 	"github.com/hulisang/vmqfox-backend/internal/config"
@@ -31,6 +32,7 @@ const maxPasswordInputBytes = 74
 func main() {
 	hashPassword := flag.Bool("hash-password", false, "从标准输入读取明文密码并输出它的 bcrypt 加密哈希后退出")
 	initDB := flag.Bool("init-db", false, "初始化数据库表结构（执行建表与初始配置）")
+	migratePublicTokens := flag.Bool("migrate-public-tokens", false, "为订单补齐 public_token 并创建唯一约束")
 	initAdmin := flag.Bool("init-admin", false, "初始化或重置管理员账号与密码（自动检测并建表，支持交互式密文输入）")
 	resetAdmin := flag.Bool("reset-admin", false, "初始化或重置管理员账号与密码（-init-admin 的别名）")
 	adminUser := flag.String("username", "", "管理员用户名（配合 -init-admin 使用）")
@@ -41,6 +43,14 @@ func main() {
 	if *initDB {
 		if err := runInitDB(); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ 数据库初始化失败: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if *migratePublicTokens {
+		if err := runPublicTokenMigration(); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ public_token 迁移失败: %v\n", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -206,6 +216,34 @@ func runInitDB() error {
 		return fmt.Errorf("初始化数据库表结构失败: %w", err)
 	}
 	fmt.Println("✅ 数据库表结构初始化成功！")
+	return nil
+}
+
+// runPublicTokenMigration 在切换公开接口前完成令牌列、回填和唯一约束迁移。
+func runPublicTokenMigration() error {
+	database, err := config.LoadDatabase()
+	if err != nil {
+		return fmt.Errorf("加载数据库配置失败: %w", err)
+	}
+	dsn := mysql.DSN(
+		database.User,
+		database.Password,
+		database.Host,
+		database.Port,
+		database.Name,
+		map[string]string{"charset": database.Charset},
+	)
+	db, err := mysql.Open(dsn, database.MaxOpenConns, database.MaxIdleConns, database.ConnMaxLifetime)
+	if err != nil {
+		return fmt.Errorf("数据库连接失败: %w", err)
+	}
+	defer func() { _ = closeDatabase(db) }()
+
+	fmt.Println("🔐 正在迁移订单 public_token...")
+	if err := mysql.MigratePublicTokens(db, system.PublicTokenGenerator{}); err != nil {
+		return err
+	}
+	fmt.Println("✅ 订单 public_token 迁移完成，所有令牌已校验为唯一且非空。")
 	return nil
 }
 

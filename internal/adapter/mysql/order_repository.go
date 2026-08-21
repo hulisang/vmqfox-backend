@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	drivermysql "github.com/go-sql-driver/mysql"
@@ -48,6 +49,16 @@ func (r *OrderRepository) FindByOrderIDForUpdate(ctx context.Context, orderID st
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("order_id = ?", orderID).
 		Take(&row).Error
+	return row.ToDomain(), mapDatabaseError(err)
+}
+
+// FindByPublicToken 仅按高熵公开令牌查询，避免公开接口回到可枚举的内部订单号。
+func (r *OrderRepository) FindByPublicToken(ctx context.Context, token string) (order.Order, error) {
+	if !order.IsValidPublicToken(token) {
+		return order.Order{}, port.ErrNotFound
+	}
+	var row OrderRow
+	err := databaseFromContext(ctx, r.db).Where("public_token = ?", token).Take(&row).Error
 	return row.ToDomain(), mapDatabaseError(err)
 }
 
@@ -128,8 +139,14 @@ func (r *OrderRepository) Statistics(ctx context.Context, dayStart, dayEnd time.
 }
 
 func (r *OrderRepository) Create(ctx context.Context, value order.Order) (order.Order, error) {
+	if !order.IsValidPublicToken(value.PublicToken) {
+		return order.Order{}, errors.New("公开订单令牌格式无效")
+	}
 	row := orderToRow(value)
 	result := databaseFromContext(ctx, r.db).Create(&row)
+	if isPublicTokenDuplicate(result.Error) {
+		return order.Order{}, port.ErrPublicTokenConflict
+	}
 	if duplicateKey(result.Error) {
 		return order.Order{}, port.ErrConflict
 	}
@@ -213,6 +230,7 @@ func orderToRow(value order.Order) OrderRow {
 	return OrderRow{
 		ID:              value.ID,
 		OrderID:         value.OrderID,
+		PublicToken:     value.PublicToken,
 		PayID:           value.PayID,
 		PaymentType:     int(value.Type),
 		PriceCent:       value.PriceCents,
@@ -255,6 +273,17 @@ func normalizePage(page, limit int) (int, int) {
 func duplicateKey(err error) bool {
 	var driverError *drivermysql.MySQLError
 	return errors.As(err, &driverError) && driverError.Number == 1062
+}
+
+// isPublicTokenDuplicate 只将公开令牌唯一索引冲突交给用例重试，其他唯一约束仍保持业务冲突语义。
+func isPublicTokenDuplicate(err error) bool {
+	var driverError *drivermysql.MySQLError
+	message := ""
+	if errors.As(err, &driverError) {
+		message = strings.ToLower(driverError.Message)
+	}
+	return driverError != nil && driverError.Number == 1062 &&
+		(strings.Contains(message, "uq_orders_public_token") || strings.Contains(message, "public_token"))
 }
 
 var _ port.OrderRepository = (*OrderRepository)(nil)

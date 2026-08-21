@@ -20,17 +20,35 @@ const (
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Token    TokenConfig
-	Runtime  RuntimeConfig
-	Jobs     JobConfig
-	Outbound OutboundConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Token     TokenConfig
+	Runtime   RuntimeConfig
+	Jobs      JobConfig
+	Outbound  OutboundConfig
+	RateLimit RateLimitConfig
 }
 
 type OutboundConfig struct {
 	AllowedCIDRs []*net.IPNet
 	AllowedIPs   []net.IP
+}
+
+type RateLimitRule struct {
+	Limit  int
+	Window time.Duration
+}
+
+type RateLimitConfig struct {
+	Login        RateLimitRule
+	Create       RateLimitRule
+	PublicRead   RateLimitRule
+	PublicToken  RateLimitRule
+	QRCode       RateLimitRule
+	MonitorHeart RateLimitRule
+	MonitorPush  RateLimitRule
+	TrustedCIDRs []*net.IPNet
+	TrustedIPs   []net.IP
 }
 
 type ServerConfig struct {
@@ -86,6 +104,38 @@ type JobConfig struct {
 
 func (c RuntimeConfig) CanWrite() bool {
 	return c.Mode == RuntimeWriter
+}
+
+func LoadDatabase() (DatabaseConfig, error) {
+	loadDotEnv()
+
+	databasePort, err := integerAny([]string{"VMQ_DB_PORT", "DB_HOSTPORT"}, 3306)
+	if err != nil || databasePort < 1 || databasePort > 65535 {
+		return DatabaseConfig{}, fmt.Errorf("数据库端口配置无效")
+	}
+	maxOpen, err := integer("VMQ_DB_MAX_OPEN_CONNS", 50)
+	if err != nil || maxOpen < 1 {
+		return DatabaseConfig{}, fmt.Errorf("VMQ_DB_MAX_OPEN_CONNS 配置无效")
+	}
+	maxIdle, err := integer("VMQ_DB_MAX_IDLE_CONNS", 10)
+	if err != nil || maxIdle < 0 || maxIdle > maxOpen {
+		return DatabaseConfig{}, fmt.Errorf("VMQ_DB_MAX_IDLE_CONNS 配置无效")
+	}
+	connectionLifetime, err := duration("VMQ_DB_CONN_MAX_LIFETIME", time.Hour)
+	if err != nil {
+		return DatabaseConfig{}, err
+	}
+	return DatabaseConfig{
+		Host:            first([]string{"VMQ_DB_HOST", "DB_HOSTNAME"}, "127.0.0.1"),
+		Port:            databasePort,
+		Name:            first([]string{"VMQ_DB_NAME", "DB_DATABASE"}, "vmq"),
+		User:            first([]string{"VMQ_DB_USER", "DB_USERNAME"}, "root"),
+		Password:        first([]string{"VMQ_DB_PASSWORD", "DB_PASSWORD"}, ""),
+		Charset:         first([]string{"VMQ_DB_CHARSET", "DB_CHARSET"}, "utf8mb4"),
+		MaxOpenConns:    maxOpen,
+		MaxIdleConns:    maxIdle,
+		ConnMaxLifetime: connectionLifetime,
+	}, nil
 }
 
 func Load() (Config, error) {
@@ -198,6 +248,39 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	loginRate, err := rateLimitRule("VMQ_RATE_LOGIN_LIMIT", "VMQ_RATE_LOGIN_WINDOW", 10, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	createRate, err := rateLimitRule("VMQ_RATE_CREATE_LIMIT", "VMQ_RATE_CREATE_WINDOW", 30, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	publicReadRate, err := rateLimitRule("VMQ_RATE_PUBLIC_READ_LIMIT", "VMQ_RATE_PUBLIC_READ_WINDOW", 60, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	publicTokenRate, err := rateLimitRule("VMQ_RATE_PUBLIC_TOKEN_LIMIT", "VMQ_RATE_PUBLIC_TOKEN_WINDOW", 60, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	qrcodeRate, err := rateLimitRule("VMQ_RATE_QRCODE_LIMIT", "VMQ_RATE_QRCODE_WINDOW", 30, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	monitorHeartRate, err := rateLimitRule("VMQ_RATE_MONITOR_HEART_LIMIT", "VMQ_RATE_MONITOR_HEART_WINDOW", 120, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	monitorPushRate, err := rateLimitRule("VMQ_RATE_MONITOR_PUSH_LIMIT", "VMQ_RATE_MONITOR_PUSH_WINDOW", 60, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	trustedProxyCIDRs, trustedProxyIPs, err := parseTrustedProxies(first([]string{"VMQ_TRUSTED_PROXY_CIDR", "VMQ_TRUSTED_PROXY_CIDRS"}, ""))
+	if err != nil {
+		return Config{}, err
+	}
+
 	outboundAllowedCIDRs, outboundAllowedIPs := parseAllowCIDR(first([]string{"VMQ_NOTIFY_ALLOW_CIDR", "NOTIFY_ALLOW_CIDR"}, ""))
 
 	return Config{
@@ -244,6 +327,17 @@ func Load() (Config, error) {
 		Outbound: OutboundConfig{
 			AllowedCIDRs: outboundAllowedCIDRs,
 			AllowedIPs:   outboundAllowedIPs,
+		},
+		RateLimit: RateLimitConfig{
+			Login:        loginRate,
+			Create:       createRate,
+			PublicRead:   publicReadRate,
+			PublicToken:  publicTokenRate,
+			QRCode:       qrcodeRate,
+			MonitorHeart: monitorHeartRate,
+			MonitorPush:  monitorPushRate,
+			TrustedCIDRs: trustedProxyCIDRs,
+			TrustedIPs:   trustedProxyIPs,
 		},
 	}, nil
 }
@@ -301,6 +395,58 @@ func requiredDuration(names []string) (time.Duration, error) {
 		return 0, err
 	}
 	return time.Duration(seconds) * time.Second, nil
+}
+
+func DefaultRateLimitConfig() RateLimitConfig {
+	return RateLimitConfig{
+		Login:        RateLimitRule{Limit: 10, Window: time.Minute},
+		Create:       RateLimitRule{Limit: 30, Window: time.Minute},
+		PublicRead:   RateLimitRule{Limit: 60, Window: time.Minute},
+		PublicToken:  RateLimitRule{Limit: 60, Window: time.Minute},
+		QRCode:       RateLimitRule{Limit: 30, Window: time.Minute},
+		MonitorHeart: RateLimitRule{Limit: 120, Window: time.Minute},
+		MonitorPush:  RateLimitRule{Limit: 60, Window: time.Minute},
+	}
+}
+
+func rateLimitRule(limitName, windowName string, defaultLimit int, defaultWindow time.Duration) (RateLimitRule, error) {
+	limit, err := integer(limitName, defaultLimit)
+	if err != nil || limit < 1 {
+		return RateLimitRule{}, fmt.Errorf("%s 配置无效", limitName)
+	}
+	window, err := duration(windowName, defaultWindow)
+	if err != nil {
+		return RateLimitRule{}, err
+	}
+	return RateLimitRule{Limit: limit, Window: window}, nil
+}
+
+func parseTrustedProxies(raw string) ([]*net.IPNet, []net.IP, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil, nil
+	}
+	var cidrs []*net.IPNet
+	var ips []net.IP
+	for _, item := range strings.Split(raw, ",") {
+		token := strings.TrimSpace(item)
+		if token == "" {
+			continue
+		}
+		if strings.Contains(token, "/") {
+			_, ipNet, err := net.ParseCIDR(token)
+			if err != nil || ipNet == nil {
+				return nil, nil, fmt.Errorf("VMQ_TRUSTED_PROXY_CIDR 包含无效网段: %s", token)
+			}
+			cidrs = append(cidrs, ipNet)
+			continue
+		}
+		ip := net.ParseIP(token)
+		if ip == nil {
+			return nil, nil, fmt.Errorf("VMQ_TRUSTED_PROXY_CIDR 包含无效地址: %s", token)
+		}
+		ips = append(ips, ip)
+	}
+	return cidrs, ips, nil
 }
 
 func parseAllowCIDR(raw string) ([]*net.IPNet, []net.IP) {

@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	defaultCloseMinutes = 5
-	priceLockAttempts   = 10
+	defaultCloseMinutes       = 5
+	priceLockAttempts         = 10
+	publicTokenCreateRetryMax = 8
 )
 
 type CreateOrderInput struct {
@@ -69,16 +70,12 @@ type OrderStatisticsView struct {
 
 type CheckOrderResult struct {
 	State            order.Status
-	RedirectURL      string
 	RemainingSeconds int64
-	ReturnURL        string
-	Param            string
 	Message          string
 }
 
 type ReturnURLResult struct {
 	ReturnURL string
-	Sign      string
 }
 
 type OrderServiceDeps struct {
@@ -90,6 +87,7 @@ type OrderServiceDeps struct {
 	Outbox       port.OutboxRepository
 	Clock        port.Clock
 	OrderIDs     port.OrderIDGenerator
+	PublicTokens port.PublicTokenGenerator
 	FrontendURL  string
 }
 
@@ -102,12 +100,13 @@ type OrderService struct {
 	outbox       port.OutboxRepository
 	clock        port.Clock
 	orderIDs     port.OrderIDGenerator
+	publicTokens port.PublicTokenGenerator
 	frontendURL  string
 }
 
 func NewOrderService(deps OrderServiceDeps) (*OrderService, error) {
 	if deps.Transactions == nil || deps.Orders == nil || deps.PriceLocks == nil || deps.QRCodes == nil ||
-		deps.Settings == nil || deps.Outbox == nil || deps.Clock == nil || deps.OrderIDs == nil {
+		deps.Settings == nil || deps.Outbox == nil || deps.Clock == nil || deps.OrderIDs == nil || deps.PublicTokens == nil {
 		return nil, errors.New("订单用例依赖不完整")
 	}
 	return &OrderService{
@@ -119,8 +118,21 @@ func NewOrderService(deps OrderServiceDeps) (*OrderService, error) {
 		outbox:       deps.Outbox,
 		clock:        deps.Clock,
 		orderIDs:     deps.OrderIDs,
+		publicTokens: deps.PublicTokens,
 		frontendURL:  strings.TrimRight(deps.FrontendURL, "/"),
 	}, nil
+}
+
+// newPublicToken 统一校验随机令牌生成器，确保所有创建路径都不会写入空或格式错误的公开凭据。
+func newPublicToken(generator port.PublicTokenGenerator) (string, error) {
+	token, err := generator.NewPublicToken()
+	if err != nil {
+		return "", err
+	}
+	if !order.IsValidPublicToken(token) {
+		return "", errors.New("生成的公开订单令牌格式无效")
+	}
+	return token, nil
 }
 
 func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (CreateOrderResult, error) {
@@ -173,66 +185,87 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 	if err != nil {
 		return CreateOrderResult{}, wrap(CodeDependency, "生成订单号失败", err)
 	}
-
 	var created order.Order
-	err = s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
-		if _, findErr := s.orders.FindByPayIDForUpdate(txCtx, input.PayID); findErr == nil {
-			return fail(CodeDuplicateOrder, "商户订单号已存在，请勿重复提交")
-		} else if !errors.Is(findErr, port.ErrNotFound) {
-			return wrap(CodeDependency, "检查商户订单号失败", findErr)
+	for attempt := 0; attempt < publicTokenCreateRetryMax; attempt++ {
+		publicToken, tokenErr := newPublicToken(s.publicTokens)
+		if tokenErr != nil {
+			return CreateOrderResult{}, wrap(CodeDependency, "生成公开订单令牌失败", tokenErr)
 		}
 
-		reallyPriceCents, lockErr := s.acquirePrice(txCtx, orderID, paymentType, priceCents, settings[setting.PriceAdjustKey])
-		if lockErr != nil {
-			return lockErr
-		}
+		err = s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
+			if _, findErr := s.orders.FindByPayIDForUpdate(txCtx, input.PayID); findErr == nil {
+				return fail(CodeDuplicateOrder, "商户订单号已存在，请勿重复提交")
+			} else if !errors.Is(findErr, port.ErrNotFound) {
+				return wrap(CodeDependency, "检查商户订单号失败", findErr)
+			}
 
-		payURL, isAuto, payURLErr := s.resolvePayURL(txCtx, paymentType, reallyPriceCents, settings)
-		if payURLErr != nil {
-			return payURLErr
-		}
+			reallyPriceCents, lockErr := s.acquirePrice(txCtx, orderID, paymentType, priceCents, settings[setting.PriceAdjustKey])
+			if lockErr != nil {
+				return lockErr
+			}
 
-		notifyURL := input.NotifyURL
-		if notifyURL == "" {
-			notifyURL = settings[setting.NotifyURLKey]
-		}
-		returnURL := input.ReturnURL
-		if returnURL == "" {
-			returnURL = settings[setting.ReturnURLKey]
-		}
+			payURL, isAuto, payURLErr := s.resolvePayURL(txCtx, paymentType, reallyPriceCents, settings)
+			if payURLErr != nil {
+				return payURLErr
+			}
 
-		value := order.Order{
-			OrderID:          orderID,
-			PayID:            input.PayID,
-			Type:             paymentType,
-			PriceCents:       priceCents,
-			ReallyPriceCents: reallyPriceCents,
-			PriceText:        input.Price,
-			ReallyPriceText:  order.FormatCents(reallyPriceCents),
-			State:            order.StatusPending,
-			Param:            input.Param,
-			PayURL:           payURL,
-			IsAuto:           isAuto,
-			NotifyURL:        notifyURL,
-			ReturnURL:        returnURL,
-			CreatedAt:        now,
-		}
-		created, err = s.orders.Create(txCtx, value)
-		if errors.Is(err, port.ErrConflict) {
-			return fail(CodeConflict, "创建订单冲突")
+			notifyURL := input.NotifyURL
+			if notifyURL == "" {
+				notifyURL = settings[setting.NotifyURLKey]
+			}
+			returnURL := input.ReturnURL
+			if returnURL == "" {
+				returnURL = settings[setting.ReturnURLKey]
+			}
+			if !validCallbackURL(notifyURL) || !validCallbackURL(returnURL) {
+				return fail(CodeConfiguration, "系统配置的 notifyUrl 或 returnUrl 无效")
+			}
+
+			value := order.Order{
+				OrderID:          orderID,
+				PublicToken:      publicToken,
+				PayID:            input.PayID,
+				Type:             paymentType,
+				PriceCents:       priceCents,
+				ReallyPriceCents: reallyPriceCents,
+				PriceText:        input.Price,
+				ReallyPriceText:  order.FormatCents(reallyPriceCents),
+				State:            order.StatusPending,
+				Param:            input.Param,
+				PayURL:           payURL,
+				IsAuto:           isAuto,
+				NotifyURL:        notifyURL,
+				ReturnURL:        returnURL,
+				CreatedAt:        now,
+			}
+			created, err = s.orders.Create(txCtx, value)
+			if errors.Is(err, port.ErrPublicTokenConflict) {
+				return port.ErrPublicTokenConflict
+			}
+			if errors.Is(err, port.ErrConflict) {
+				return fail(CodeConflict, "创建订单冲突")
+			}
+			if err != nil {
+				return wrap(CodeDependency, "创建订单失败", err)
+			}
+			return nil
+		})
+		if errors.Is(err, port.ErrPublicTokenConflict) {
+			continue
 		}
 		if err != nil {
-			return wrap(CodeDependency, "创建订单失败", err)
+			return CreateOrderResult{}, err
 		}
-		return nil
-	})
-	if err != nil {
-		return CreateOrderResult{}, err
+		break
+	}
+	if errors.Is(err, port.ErrPublicTokenConflict) {
+		return CreateOrderResult{}, fail(CodeDependency, "生成唯一公开订单令牌失败")
 	}
 
 	redirectURL := ""
 	if s.frontendURL != "" {
-		redirectURL = s.frontendURL + "/#/payment/" + created.OrderID
+		// 公开收银台链接只携带随机令牌，不再把可预测的内部订单号当作凭据。
+		redirectURL = s.frontendURL + "/#/payment/" + created.PublicToken
 	}
 	return CreateOrderResult{
 		Order:          created,
@@ -243,22 +276,32 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 	}, nil
 }
 
-func (s *OrderService) Get(ctx context.Context, orderID string) (OrderView, error) {
-	if orderID == "" {
-		return OrderView{}, fail(CodeInvalidArgument, "订单号不能为空")
-	}
-	value, err := s.orders.FindByOrderID(ctx, orderID)
-	if errors.Is(err, port.ErrNotFound) {
-		return OrderView{}, fail(CodeNotFound, "订单不存在")
-	}
+func (s *OrderService) Get(ctx context.Context, publicToken string) (OrderView, error) {
+	value, err := s.findPublicOrder(ctx, publicToken)
 	if err != nil {
-		return OrderView{}, wrap(CodeDependency, "查询订单失败", err)
+		return OrderView{}, err
 	}
 	minutes, err := s.readCloseMinutes(ctx)
 	if err != nil {
 		return OrderView{}, err
 	}
 	return orderView(value, minutes, s.clock.Now()), nil
+}
+
+// findPublicOrder 统一公开订单令牌校验与查询；格式错误和不存在都返回相同结果，避免形成订单存在性探针。
+func (s *OrderService) findPublicOrder(ctx context.Context, publicToken string) (order.Order, error) {
+	publicToken = strings.TrimSpace(publicToken)
+	if !order.IsValidPublicToken(publicToken) {
+		return order.Order{}, fail(CodeNotFound, "订单不存在")
+	}
+	value, err := s.orders.FindByPublicToken(ctx, publicToken)
+	if errors.Is(err, port.ErrNotFound) {
+		return order.Order{}, fail(CodeNotFound, "订单不存在")
+	}
+	if err != nil {
+		return order.Order{}, wrap(CodeDependency, "查询订单失败", err)
+	}
+	return value, nil
 }
 
 func (s *OrderService) List(ctx context.Context, input ListOrdersInput) (OrderPageView, error) {
@@ -309,37 +352,28 @@ func (s *OrderService) Detail(ctx context.Context, id int64) (order.Order, error
 }
 
 // Check 只计算对外可见状态，持久化过期状态由生命周期任务统一处理。
-func (s *OrderService) Check(ctx context.Context, orderID string) (CheckOrderResult, error) {
-	if orderID == "" {
-		return CheckOrderResult{}, fail(CodeInvalidArgument, "订单号不能为空")
+func (s *OrderService) Check(ctx context.Context, publicToken string) (CheckOrderResult, error) {
+	value, err := s.findPublicOrder(ctx, publicToken)
+	if err != nil {
+		return CheckOrderResult{}, err
 	}
 	minutes, err := s.readCloseMinutes(ctx)
 	if err != nil {
 		return CheckOrderResult{}, err
 	}
-	value, err := s.orders.FindByOrderID(ctx, orderID)
-	if errors.Is(err, port.ErrNotFound) {
-		return CheckOrderResult{}, fail(CodeNotFound, "订单不存在")
-	}
-	if err != nil {
-		return CheckOrderResult{}, wrap(CodeDependency, "检查订单状态失败", err)
-	}
 	return checkResult(value, minutes, s.clock.Now()), nil
 }
 
-func (s *OrderService) ReturnURL(ctx context.Context, orderID string) (ReturnURLResult, error) {
-	if orderID == "" {
-		return ReturnURLResult{}, fail(CodeInvalidArgument, "订单号不能为空")
-	}
-	value, err := s.orders.FindByOrderID(ctx, orderID)
-	if errors.Is(err, port.ErrNotFound) {
-		return ReturnURLResult{}, fail(CodeNotFound, "订单不存在")
-	}
+func (s *OrderService) ReturnURL(ctx context.Context, publicToken string) (ReturnURLResult, error) {
+	value, err := s.findPublicOrder(ctx, publicToken)
 	if err != nil {
-		return ReturnURLResult{}, wrap(CodeDependency, "查询订单失败", err)
+		return ReturnURLResult{}, err
 	}
 	if value.ReturnURL == "" {
 		return ReturnURLResult{}, fail(CodeConfiguration, "订单没有配置返回URL")
+	}
+	if !validCallbackURL(value.ReturnURL) {
+		return ReturnURLResult{}, fail(CodeConfiguration, "订单返回URL配置无效")
 	}
 	// 安全加固：仅当订单已处于已支付或通知失败状态时，才允许生成带签名的回跳地址，防止未支付订单骗取签名
 	if value.State != order.StatusPaid && value.State != order.StatusNotifyFailed {
@@ -364,10 +398,8 @@ func (s *OrderService) ReturnURL(ctx context.Context, orderID string) (ReturnURL
 		"&reallyPrice=" + url.QueryEscape(reallyPrice)
 	newURL := appendReturnQuery(value.ReturnURL, baseQuery+"&sign="+url.QueryEscape(signNew))
 
-	return ReturnURLResult{
-		ReturnURL: newURL,
-		Sign:      signNew,
-	}, nil
+	// 回跳签名已嵌入 URL 查询参数，匿名接口不再重复暴露独立签名字段。
+	return ReturnURLResult{ReturnURL: newURL}, nil
 }
 
 func appendReturnQuery(baseURL, query string) string {
@@ -508,14 +540,9 @@ func orderView(value order.Order, minutes int, now time.Time) OrderView {
 }
 
 func checkResult(value order.Order, minutes int, now time.Time) CheckOrderResult {
-	result := CheckOrderResult{
-		State:     value.State,
-		ReturnURL: value.ReturnURL,
-		Param:     value.Param,
-	}
+	result := CheckOrderResult{State: value.State}
 	switch value.State {
 	case order.StatusPaid, order.StatusNotifyFailed:
-		result.RedirectURL = value.ReturnURL
 		result.Message = "支付成功"
 	case order.StatusClosed:
 		result.RemainingSeconds = 0

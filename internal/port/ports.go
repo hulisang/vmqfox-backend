@@ -13,6 +13,7 @@ import (
 var (
 	ErrNotFound             = errorValue("记录不存在")
 	ErrConflict             = errorValue("记录冲突")
+	ErrPublicTokenConflict  = errorValue("公开订单令牌冲突")
 	ErrAlreadyProcessed     = errorValue("事件已处理")
 	ErrQRCodeNotFound       = errorValue("图片中未识别到二维码")
 	ErrQRCodeUnsupported    = errorValue("二维码格式暂不支持")
@@ -31,6 +32,11 @@ type Clock interface {
 
 type OrderIDGenerator interface {
 	NewOrderID(now time.Time) (string, error)
+}
+
+// PublicTokenGenerator 为公开订单生成不可枚举的随机令牌。
+type PublicTokenGenerator interface {
+	NewPublicToken() (string, error)
 }
 
 // TokenIssuer 只暴露登录所需的签发能力，认证实现不会泄漏到业务用例。
@@ -88,6 +94,7 @@ type OrderRepository interface {
 	FindByIDForUpdate(ctx context.Context, id int64) (order.Order, error)
 	FindByOrderID(ctx context.Context, orderID string) (order.Order, error)
 	FindByOrderIDForUpdate(ctx context.Context, orderID string) (order.Order, error)
+	FindByPublicToken(ctx context.Context, token string) (order.Order, error)
 	FindByPayID(ctx context.Context, payID string) (order.Order, error)
 	FindByPayIDForUpdate(ctx context.Context, payID string) (order.Order, error)
 	List(ctx context.Context, filter OrderFilter) (OrderPage, error)

@@ -13,6 +13,7 @@ import (
 type OrderRow struct {
 	ID              int64      `gorm:"column:id;primaryKey;autoIncrement"`
 	OrderID         string     `gorm:"column:order_id;not null;uniqueIndex:uq_orders_order_id"`
+	PublicToken     string     `gorm:"column:public_token;type:char(64);not null;uniqueIndex:uq_orders_public_token"`
 	PayID           string     `gorm:"column:pay_id;not null;uniqueIndex:uq_orders_pay_id"`
 	PaymentType     int        `gorm:"column:payment_type;not null"`
 	PriceCent       int64      `gorm:"column:price_cent;not null"`
@@ -36,6 +37,7 @@ func (m OrderRow) ToDomain() order.Order {
 	return order.Order{
 		ID:               m.ID,
 		OrderID:          m.OrderID,
+		PublicToken:      m.PublicToken,
 		PayID:            m.PayID,
 		Type:             payment.Type(m.PaymentType),
 		PriceCents:       m.PriceCent,

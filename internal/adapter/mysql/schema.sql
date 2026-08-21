@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS qrcodes (
 CREATE TABLE IF NOT EXISTS orders (
   id BIGINT NOT NULL AUTO_INCREMENT,
   order_id VARBINARY(128) NOT NULL,
+  public_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   pay_id VARBINARY(255) NOT NULL,
   payment_type TINYINT NOT NULL,
   price_cent BIGINT NOT NULL,
@@ -52,6 +53,7 @@ CREATE TABLE IF NOT EXISTS orders (
   closed_at DATETIME(6) NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_orders_order_id (order_id),
+  UNIQUE KEY uq_orders_public_token (public_token),
   UNIQUE KEY uq_orders_pay_id (pay_id),
   KEY idx_orders_payment_state_amount (payment_type, state, really_price_cent, id),
   KEY idx_orders_state_created (state, created_at, id)

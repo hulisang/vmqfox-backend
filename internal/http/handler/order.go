@@ -49,6 +49,7 @@ type OrderHandlers struct {
 	ReissueAPI       gin.HandlerFunc
 }
 
+// newOrderHandlers 统一装配订单路由处理器，避免公开令牌改造遗漏原有管理端处理器。
 func newOrderHandlers(service OrderManager) OrderHandlers {
 	return OrderHandlers{
 		CreateAPI:        createOrderHandler(service),
@@ -65,6 +66,37 @@ func newOrderHandlers(service OrderManager) OrderHandlers {
 		DeleteExpiredAPI: deleteExpiredOrdersAPIHandler(service),
 		ReissueAPI:       reissueOrderAPIHandler(service),
 	}
+}
+
+type PublicOrderView struct {
+	PayID            string      `json:"payId"`
+	PayType          int         `json:"payType"`
+	Price            json.Number `json:"price"`
+	ReallyPrice      json.Number `json:"reallyPrice"`
+	PayURL           string      `json:"payUrl"`
+	IsAuto           int         `json:"isAuto"`
+	State            int         `json:"state"`
+	StateText        string      `json:"stateText"`
+	TimeoutMinutes   int         `json:"timeOut"`
+	CreatedAt        int64       `json:"date"`
+	RemainingSeconds int64       `json:"remainingSeconds"`
+}
+
+type CreateOrderResponse struct {
+	PayID       string `json:"payId"`
+	OrderID     string `json:"orderId"`
+	PublicToken string `json:"publicToken"`
+	PayType     int    `json:"payType"`
+	Price       string `json:"price"`
+	ReallyPrice string `json:"reallyPrice"`
+	PayURL      string `json:"payUrl"`
+	IsAuto      int    `json:"isAuto"`
+	RedirectURL string `json:"redirectUrl"`
+}
+
+type PublicOrderCheck struct {
+	State            int   `json:"state"`
+	RemainingSeconds int64 `json:"remainingSeconds"`
 }
 
 func createOrderHandler(service OrderManager) gin.HandlerFunc {
@@ -105,13 +137,20 @@ func getOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 			writeOrderUnavailable(c)
 			return
 		}
-		result, err := service.Get(c.Request.Context(), c.Param("id"))
+		result, err := service.Get(c.Request.Context(), publicOrderToken(c))
 		if err != nil {
 			writeOrderError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", apiOrderViewData(result)))
 	}
+}
+
+func publicOrderToken(c *gin.Context) string {
+	if token := c.Param("token"); token != "" {
+		return token
+	}
+	return c.Param("id")
 }
 
 func listOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
@@ -210,7 +249,7 @@ func checkOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 			writeOrderUnavailable(c)
 			return
 		}
-		result, err := service.Check(c.Request.Context(), c.Param("id"))
+		result, err := service.Check(c.Request.Context(), publicOrderToken(c))
 		if err != nil {
 			writeOrderError(c, err)
 			return
@@ -225,15 +264,15 @@ func returnURLAPIHandler(service OrderManager) gin.HandlerFunc {
 			writeOrderUnavailable(c)
 			return
 		}
-		result, err := service.ReturnURL(c.Request.Context(), c.Param("id"))
+		result, err := service.ReturnURL(c.Request.Context(), publicOrderToken(c))
 		if err != nil {
 			writeOrderError(c, err)
 			return
 		}
+		// 回跳 URL 自身已携带服务端签名参数，避免额外下发可复用的独立签名字段。
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", gin.H{
 			"returnUrl": result.ReturnURL,
 			"mode":      "new-first",
-			"sign":      result.Sign,
 		}))
 	}
 }
@@ -350,21 +389,23 @@ func deleteExpiredOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 	}
 }
 
-func apiCreateOrderData(result usecase.CreateOrderResult) gin.H {
+func apiCreateOrderData(result usecase.CreateOrderResult) CreateOrderResponse {
 	value := result.Order
-	return gin.H{
-		"payId":       value.PayID,
-		"orderId":     value.OrderID,
-		"payType":     int(value.Type),
-		"price":       result.Price,
-		"reallyPrice": result.ReallyPrice,
-		"payUrl":      value.PayURL,
-		"isAuto":      boolInt(value.IsAuto),
-		"redirectUrl": result.RedirectURL,
+	return CreateOrderResponse{
+		PayID:       value.PayID,
+		OrderID:     value.OrderID,
+		PublicToken: value.PublicToken,
+		PayType:     int(value.Type),
+		Price:       result.Price,
+		ReallyPrice: result.ReallyPrice,
+		PayURL:      value.PayURL,
+		IsAuto:      boolInt(value.IsAuto),
+		RedirectURL: result.RedirectURL,
 	}
 }
 
-func apiOrderViewData(result usecase.OrderView) gin.H {
+// apiOrderViewData 是匿名收银台专用 DTO，刻意不包含通知地址、回跳原文、透传参数和内部订单 ID。
+func apiOrderViewData(result usecase.OrderView) PublicOrderView {
 	value := result.Order
 	publicState := value.State
 	stateText := result.StateText
@@ -373,36 +414,30 @@ func apiOrderViewData(result usecase.OrderView) gin.H {
 		publicState = order.StatusPaid
 		stateText = "已支付"
 	}
-	return gin.H{
-		"payId":            value.PayID,
-		"orderId":          value.OrderID,
-		"payType":          int(value.Type),
-		"price":            amountNumber(value.PriceText, value.PriceCents),
-		"reallyPrice":      amountNumber(value.ReallyPriceText, value.ReallyPriceCents),
-		"payUrl":           value.PayURL,
-		"isAuto":           boolInt(value.IsAuto),
-		"state":            int(publicState),
-		"stateText":        stateText,
-		"timeOut":          result.TimeoutMinutes,
-		"date":             value.CreatedAt.Unix(),
-		"remainingSeconds": result.RemainingSeconds,
+	return PublicOrderView{
+		PayID:            value.PayID,
+		PayType:          int(value.Type),
+		Price:            amountNumber(value.PriceText, value.PriceCents),
+		ReallyPrice:      amountNumber(value.ReallyPriceText, value.ReallyPriceCents),
+		PayURL:           value.PayURL,
+		IsAuto:           boolInt(value.IsAuto),
+		State:            int(publicState),
+		StateText:        stateText,
+		TimeoutMinutes:   result.TimeoutMinutes,
+		CreatedAt:        value.CreatedAt.Unix(),
+		RemainingSeconds: result.RemainingSeconds,
 	}
 }
 
-func apiCheckOrderData(result usecase.CheckOrderResult) gin.H {
-	data := gin.H{
-		"remainingSeconds": result.RemainingSeconds,
+func apiCheckOrderData(result usecase.CheckOrderResult) PublicOrderCheck {
+	state := result.State
+	if state == order.StatusNotifyFailed {
+		state = order.StatusPaid
 	}
-	switch result.State {
-	case order.StatusPaid, order.StatusNotifyFailed:
-		data["state"] = int(order.StatusPaid)
-		data["redirectUrl"] = result.RedirectURL
-	case order.StatusClosed:
-		data["state"] = int(order.StatusClosed)
-	default:
-		data["state"] = int(order.StatusPending)
+	return PublicOrderCheck{
+		State:            int(state),
+		RemainingSeconds: result.RemainingSeconds,
 	}
-	return data
 }
 
 func apiOrderRowData(value order.Order) gin.H {

@@ -54,6 +54,7 @@ type MonitorServiceDeps struct {
 	Events       port.PaymentEventRepository
 	Outbox       port.OutboxRepository
 	Clock        port.Clock
+	PublicTokens port.PublicTokenGenerator
 	SignTTL      time.Duration
 }
 
@@ -65,12 +66,13 @@ type MonitorService struct {
 	events       port.PaymentEventRepository
 	outbox       port.OutboxRepository
 	clock        port.Clock
+	publicTokens port.PublicTokenGenerator
 	signTTL      time.Duration
 }
 
 func NewMonitorService(deps MonitorServiceDeps) (*MonitorService, error) {
 	if deps.Transactions == nil || deps.Orders == nil || deps.PriceLocks == nil || deps.Settings == nil ||
-		deps.Events == nil || deps.Outbox == nil || deps.Clock == nil {
+		deps.Events == nil || deps.Outbox == nil || deps.Clock == nil || deps.PublicTokens == nil {
 		return nil, errors.New("监控用例依赖不完整")
 	}
 	signTTL := deps.SignTTL
@@ -86,6 +88,7 @@ func NewMonitorService(deps MonitorServiceDeps) (*MonitorService, error) {
 		events:       deps.Events,
 		outbox:       deps.Outbox,
 		clock:        deps.Clock,
+		publicTokens: deps.PublicTokens,
 		signTTL:      signTTL,
 	}, nil
 }
@@ -178,10 +181,9 @@ func (s *MonitorService) Push(ctx context.Context, input PaymentPushInput) (Paym
 
 		matched, findErr := s.orders.FindPendingForUpdate(txCtx, paymentType, priceCents)
 		if errors.Is(findErr, port.ErrNotFound) {
-			unmatched := unmatchedTransfer(eventKey, paymentType, priceCents, now.Unix())
-			created, createErr := s.orders.Create(txCtx, unmatched)
+			created, createErr := s.createUnmatchedTransfer(txCtx, eventKey, paymentType, priceCents, now.Unix())
 			if createErr != nil {
-				return wrap(CodeDependency, "记录无订单转账失败", createErr)
+				return createErr
 			}
 			result.Order = created
 			return nil
@@ -232,6 +234,25 @@ func (s *MonitorService) Push(ctx context.Context, input PaymentPushInput) (Paym
 		return PaymentPushResult{}, err
 	}
 	return result, nil
+}
+
+// createUnmatchedTransfer 让无订单转账也遵循公开令牌唯一性约束，并在极低概率冲突时重试。
+func (s *MonitorService) createUnmatchedTransfer(ctx context.Context, eventKey string, paymentType payment.Type, priceCents, unixSecond int64) (order.Order, error) {
+	for attempt := 0; attempt < publicTokenCreateRetryMax; attempt++ {
+		publicToken, tokenErr := newPublicToken(s.publicTokens)
+		if tokenErr != nil {
+			return order.Order{}, wrap(CodeDependency, "生成无订单转账公开令牌失败", tokenErr)
+		}
+		created, createErr := s.orders.Create(ctx, unmatchedTransfer(eventKey, publicToken, paymentType, priceCents, unixSecond))
+		if errors.Is(createErr, port.ErrPublicTokenConflict) {
+			continue
+		}
+		if createErr != nil {
+			return order.Order{}, wrap(CodeDependency, "记录无订单转账失败", createErr)
+		}
+		return created, nil
+	}
+	return order.Order{}, fail(CodeDependency, "生成唯一无订单转账公开令牌失败")
 }
 
 func signedNotificationPayload(value order.Order, merchantKey string) NotificationPayload {
@@ -317,11 +338,12 @@ func digest(parts ...string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func unmatchedTransfer(eventKey string, paymentType payment.Type, priceCents, unixSecond int64) order.Order {
+func unmatchedTransfer(eventKey, publicToken string, paymentType payment.Type, priceCents, unixSecond int64) order.Order {
 	identifier := "无订单转账-" + strconv.FormatInt(unixSecond, 10) + "-" + eventKey[:8]
 	price := order.FormatCents(priceCents)
 	return order.Order{
 		OrderID:          identifier,
+		PublicToken:      publicToken,
 		PayID:            identifier,
 		Type:             paymentType,
 		PriceCents:       priceCents,

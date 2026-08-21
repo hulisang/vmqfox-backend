@@ -8,27 +8,57 @@ import (
 )
 
 func CORS(allowedOrigin string) gin.HandlerFunc {
-	origin := strings.TrimSpace(allowedOrigin)
-	if origin == "" {
-		origin = "*"
+	rawOrigin := strings.TrimSpace(allowedOrigin)
+	if rawOrigin == "" {
+		rawOrigin = "*"
+	}
+
+	// 支持逗号分隔的多 Origin 配置
+	var allowedList []string
+	isWildcard := false
+	if rawOrigin == "*" {
+		isWildcard = true
+	} else {
+		for _, item := range strings.Split(rawOrigin, ",") {
+			trimmed := strings.TrimSpace(item)
+			if trimmed == "*" {
+				isWildcard = true
+				break
+			}
+			if trimmed != "" {
+				allowedList = append(allowedList, trimmed)
+			}
+		}
 	}
 
 	return func(c *gin.Context) {
 		requestOrigin := c.GetHeader("Origin")
-		responseOrigin := origin
-		if origin != "*" && requestOrigin != "" && requestOrigin != origin {
-			c.AbortWithStatus(http.StatusForbidden)
-			return
-		}
-		if origin != "*" && requestOrigin == origin {
-			responseOrigin = requestOrigin
-			c.Header("Vary", "Origin")
+		responseOrigin := "*"
+
+		if isWildcard {
+			if requestOrigin != "" {
+				responseOrigin = requestOrigin
+				c.Header("Vary", "Origin")
+			}
+		} else if requestOrigin != "" {
+			matched := false
+			for _, allowed := range allowedList {
+				if allowed == requestOrigin {
+					responseOrigin = requestOrigin
+					c.Header("Vary", "Origin")
+					matched = true
+					break
+				}
+			}
+			if !matched && len(allowedList) > 0 {
+				responseOrigin = allowedList[0]
+			}
 		}
 
 		c.Header("Access-Control-Allow-Origin", responseOrigin)
 		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, If-Modified-Since, If-None-Match, If-Unmodified-Since, X-Requested-With, X-Request-ID")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Range, X-Request-ID")
+		c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-Request-ID")
 
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
@@ -37,3 +67,4 @@ func CORS(allowedOrigin string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
