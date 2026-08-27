@@ -7,6 +7,7 @@ import (
 	"github.com/hulisang/vmqfox-backend/internal/config"
 	"github.com/hulisang/vmqfox-backend/internal/http/handler"
 	"github.com/hulisang/vmqfox-backend/internal/http/middleware"
+	"github.com/hulisang/vmqfox-backend/internal/http/static"
 )
 
 type RouterDeps struct {
@@ -160,11 +161,32 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 
 	r.GET("/health", h.Health)
 	r.GET("/ready", h.Ready)
-	r.GET("/", h.Root)
+	registerStatic(r, deps)
 
 	registerAPI(r, h, deps)
 	registerMonitor(r, h, deps)
 	return r
+}
+
+func registerStatic(r *gin.Engine, deps RouterDeps) {
+	assetsFS, err := static.AssetsFileSystem()
+	if err != nil {
+		if deps.Logger != nil {
+			deps.Logger.Printf("静态前端资源初始化跳过: %v", err)
+		}
+		return
+	}
+
+	// 托管前端静态资源
+	r.StaticFS("/assets", assetsFS)
+	r.GET("/", func(c *gin.Context) {
+		indexHTML, err := static.ReadIndexHTML()
+		if err != nil {
+			c.String(200, "VMQFox API Running")
+			return
+		}
+		c.Data(200, "text/html; charset=utf-8", indexHTML)
+	})
 }
 
 func registerAPI(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
