@@ -19,12 +19,12 @@ export const PaymentView: React.FC<PaymentViewProps> = ({ publicToken }) => {
     enabled: !!publicToken,
   })
 
-  // 2. 短轮询订单支付状态 (每 2 秒一次)
+  // 2. 仅在订单确实处于待支付时短轮询；已支付或已关闭立即停止，避免无意义请求触发限流
   const { data: checkData } = useQuery({
     queryKey: ['payment-check', publicToken],
     queryFn: () => publicPaymentApi.checkOrder(publicToken),
-    enabled: !!publicToken && (order?.state === 0 || order?.state === undefined),
-    refetchInterval: 2000,
+    enabled: !!publicToken && order?.state === 0,
+    refetchInterval: (query) => (query.state.data?.state === 0 ? 2000 : false),
   })
 
   // 初始化并维护倒计时

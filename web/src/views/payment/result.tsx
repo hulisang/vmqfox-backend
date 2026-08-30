@@ -9,6 +9,22 @@ interface PaymentResultViewProps {
   publicToken: string
 }
 
+/**
+ * 二次校验最终导航地址。
+ * 服务端已限制回跳地址只能是 http(s)，前端在真正跳转前再校验一次，
+ * 防止任何环节注入 javascript:、data: 等伪协议。
+ */
+function safeExternalUrl(raw: string | undefined): string | null {
+  if (!raw) return null
+  try {
+    const parsed = new URL(raw, window.location.origin)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
 export const PaymentResultView: React.FC<PaymentResultViewProps> = ({ publicToken }) => {
   const [countdown, setCountdown] = useState(5)
 
@@ -18,20 +34,34 @@ export const PaymentResultView: React.FC<PaymentResultViewProps> = ({ publicToke
     enabled: !!publicToken,
   })
 
+  /**
+   * 回跳地址来自独立的服务端接口，并由服务端附加签名。
+   * 公开订单 DTO 不含 returnUrl，前端也不再从订单数据里猜测跳转目标。
+   * 后端仅在订单已支付时才签发，未配置回跳地址时返回业务错误，此处静默忽略。
+   */
+  const { data: returnUrlData } = useQuery({
+    queryKey: ['payment-return-url', publicToken],
+    queryFn: () => publicPaymentApi.getReturnUrl(publicToken),
+    enabled: !!publicToken && order?.state === 1,
+    retry: false,
+  })
+
+  const redirectTarget = safeExternalUrl(returnUrlData?.returnUrl)
+
   useEffect(() => {
-    if (!order?.returnUrl) return
+    if (!redirectTarget) return
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer)
-          window.location.href = order.returnUrl!
+          window.location.href = redirectTarget
           return 0
         }
         return prev - 1
       })
     }, 1000)
     return () => clearInterval(timer)
-  }, [order?.returnUrl])
+  }, [redirectTarget])
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -56,10 +86,10 @@ export const PaymentResultView: React.FC<PaymentResultViewProps> = ({ publicToke
             </div>
           </div>
 
-          {order?.returnUrl && (
+          {redirectTarget && (
             <div className="pt-2">
               <Button
-                onClick={() => (window.location.href = order.returnUrl!)}
+                onClick={() => (window.location.href = redirectTarget)}
                 className="w-full gap-2 rounded-2xl"
               >
                 <span>返回商户 ({countdown}s)</span>

@@ -1,6 +1,6 @@
 import { api } from './client'
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T> {
   code: number
   msg: string
   data: T
@@ -24,16 +24,19 @@ export const authApi = {
   },
 }
 
-// 仪表盘统计与系统环境
+/**
+ * 仪表盘统计。
+ * 字段名与 Go `orderStatisticsAPIHandler` 完全一致：
+ * todayOrder / todaySuccessOrder / todayCloseOrder / todayMoney / countOrder / countMoney。
+ * 后端不提供按渠道拆分的金额，因此这里也不声明渠道字段，避免前端展示恒为 0 的伪数据。
+ */
 export interface DashboardStats {
-  todayOrderCount: number
-  todaySuccessCount: number
-  todayMoney: number
-  totalOrderCount: number
-  totalSuccessCount: number
-  totalMoney: number
-  wechatMoney: number
-  alipayMoney: number
+  todayOrder: number
+  todaySuccessOrder: number
+  todayCloseOrder: number
+  todayMoney: string
+  countOrder: number
+  countMoney: string
 }
 
 export interface SystemConfig {
@@ -58,7 +61,7 @@ export const dashboardApi = {
   },
 }
 
-// 订单管理模块
+// 订单管理模块（管理端列表使用后端 snake_case 字段）
 export interface OrderItem {
   id: number
   order_id: string
@@ -70,7 +73,9 @@ export interface OrderItem {
   state: number
   state_text: string
   create_time: string
-  pay_time?: string
+  create_date: number
+  pay_date: number
+  close_date: number
   param?: string
 }
 
@@ -100,8 +105,9 @@ export const orderApi = {
     const res = await api.delete<ApiResponse<{ count: number }>>('/order/expired')
     return res.data.data
   },
-  deleteLast: async (days: number) => {
-    const res = await api.delete<ApiResponse<{ count: number }>>('/order/last', { params: { days } })
+  deleteLast: async () => {
+    // 后端 /order/last 固定清理 24 小时前的订单，不接受 days 参数
+    const res = await api.delete<ApiResponse<{ count: number }>>('/order/last')
     return res.data.data
   },
 }
@@ -112,9 +118,9 @@ export interface QrcodeItem {
   pay_url: string
   price: string
   type: number
+  type_text: string
   state: number
-  state_text?: string
-  create_date?: string
+  state_text: string
 }
 
 export interface QrcodeListResponse {
@@ -125,13 +131,19 @@ export interface QrcodeListResponse {
 export const qrcodeApi = {
   list: async (params: { type: 'wechat' | 'alipay'; page: number; limit: number }) => {
     const url = params.type === 'wechat' ? '/qrcode/wechat' : '/qrcode/alipay'
-    const res = await api.get<ApiResponse<QrcodeListResponse>>(url, { params: { page: params.page, limit: params.limit } })
+    const res = await api.get<ApiResponse<QrcodeListResponse>>(url, {
+      params: { page: params.page, limit: params.limit },
+    })
     return res.data.data
   },
   create: async (data: { type: number; payUrl: string; price: string }) => {
     const url = data.type === 1 ? '/qrcode/wechat' : '/qrcode/alipay'
-    const res = await api.post<ApiResponse<QrcodeItem>>(url, data)
-    return res.data.data
+    // 后端 createQRCodeHandler 读取 pay_url，此处必须使用同名字段
+    const res = await api.post<ApiResponse<void>>(url, {
+      pay_url: data.payUrl,
+      price: data.price,
+    })
+    return res.data
   },
   setState: async (id: number, state: number) => {
     const res = await api.post<ApiResponse<void>>(`/qrcode/bind/${id}`, { state })
@@ -186,10 +198,13 @@ export const settingsApi = {
   },
 }
 
-// 公开收银台模块
+/**
+ * 公开收银台订单视图。
+ * 与 Go `PublicOrderView` 严格一一对应：不含 orderId、param、notifyUrl、returnUrl 与独立签名字段。
+ * 回跳地址必须在支付成功后单独调用 getReturnUrl 获取。
+ */
 export interface PublicOrderInfo {
   payId: string
-  orderId?: string
   payType: number
   price: string
   reallyPrice: string
@@ -200,20 +215,54 @@ export interface PublicOrderInfo {
   timeOut: number
   date: number
   remainingSeconds: number
-  returnUrl?: string
+}
+
+export interface CreateOrderResult {
+  payId: string
+  orderId: string
+  publicToken: string
+  payType: number
+  price: string
+  reallyPrice: string
+  payUrl: string
+  isAuto: number
+  redirectUrl: string
 }
 
 export const publicPaymentApi = {
+  /** 公开令牌是 bearer 凭据，必须走路径参数，与 Go 路由 /order/get/:id 对齐 */
   getOrder: async (publicToken: string) => {
-    const res = await api.get<ApiResponse<PublicOrderInfo>>('/order/get', { params: { publicToken } })
+    const res = await api.get<ApiResponse<PublicOrderInfo>>(
+      `/order/get/${encodeURIComponent(publicToken)}`
+    )
     return res.data.data
   },
   checkOrder: async (publicToken: string) => {
-    const res = await api.get<ApiResponse<{ state: number; remainingSeconds: number }>>('/order/check', { params: { publicToken } })
+    const res = await api.get<ApiResponse<{ state: number; remainingSeconds: number }>>(
+      `/order/check/${encodeURIComponent(publicToken)}`
+    )
     return res.data.data
   },
-  createTestOrder: async (data: { payId: string; type: number; price: string; sign: string; param?: string }) => {
-    const res = await api.post<ApiResponse<{ publicToken: string; payUrl: string; reallyPrice: string }>>('/order/create', data)
+  /**
+   * 获取服务端生成并签名的商户回跳地址。
+   * 后端仅在订单已支付时才返回，未支付会给出明确业务错误。
+   */
+  getReturnUrl: async (publicToken: string) => {
+    const res = await api.get<ApiResponse<{ returnUrl: string; mode: string }>>(
+      `/order/return-url/${encodeURIComponent(publicToken)}`
+    )
+    return res.data.data
+  },
+  createTestOrder: async (data: {
+    payId: string
+    type: number
+    price: string
+    sign: string
+    param?: string
+    notifyUrl?: string
+    returnUrl?: string
+  }) => {
+    const res = await api.post<ApiResponse<CreateOrderResult>>('/order/create', data)
     return res.data.data
   },
 }

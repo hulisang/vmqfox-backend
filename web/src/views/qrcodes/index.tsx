@@ -55,8 +55,8 @@ export const QrcodesView: React.FC<QrcodesViewProps> = ({ type }) => {
       setAddPayUrl('')
       queryClient.invalidateQueries({ queryKey: ['qrcodes-list', type] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || '添加失败')
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '添加失败')
     },
   })
 
@@ -68,8 +68,8 @@ export const QrcodesView: React.FC<QrcodesViewProps> = ({ type }) => {
       toast.success('状态已更新')
       queryClient.invalidateQueries({ queryKey: ['qrcodes-list', type] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || '状态切换失败')
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '状态切换失败')
     },
   })
 
@@ -80,8 +80,8 @@ export const QrcodesView: React.FC<QrcodesViewProps> = ({ type }) => {
       toast.success('二维码已删除')
       queryClient.invalidateQueries({ queryKey: ['qrcodes-list', type] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || '删除失败')
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '删除失败')
     },
   })
 
@@ -202,14 +202,13 @@ export const QrcodesView: React.FC<QrcodesViewProps> = ({ type }) => {
                 <TableHead>面额</TableHead>
                 <TableHead>二维码内容</TableHead>
                 <TableHead>状态</TableHead>
-                <TableHead>创建时间</TableHead>
                 <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-10 text-muted-foreground text-xs">
+                  <TableCell colSpan={4} className="text-center py-10 text-muted-foreground text-xs">
                     数据加载中...
                   </TableCell>
                 </TableRow>
@@ -229,9 +228,6 @@ export const QrcodesView: React.FC<QrcodesViewProps> = ({ type }) => {
                           toggleStateMutation.mutate({ id: row.id, state: checked ? 1 : 0 })
                         }
                       />
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground font-mono">
-                      {row.create_date || '-'}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -258,7 +254,7 @@ export const QrcodesView: React.FC<QrcodesViewProps> = ({ type }) => {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-12 text-muted-foreground text-xs">
+                  <TableCell colSpan={4} className="text-center py-12 text-muted-foreground text-xs">
                     暂未添加任何 {payTypeName} 收款码
                   </TableCell>
                 </TableRow>

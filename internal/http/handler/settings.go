@@ -130,14 +130,21 @@ func updateMonitorSettingsHandler(service SettingsManager) gin.HandlerFunc {
 			c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(503, "设置服务不可用", nil))
 			return
 		}
-		var request struct {
-			JK string `json:"jk" form:"jk"`
-		}
-		if err := c.ShouldBind(&request); err != nil {
+		params, err := scalarRequestParams(c)
+		if err != nil {
 			c.JSON(http.StatusOK, php.NewEnvelope(400, "参数格式错误", nil))
 			return
 		}
-		if err := service.UpdateMonitorState(c.Request.Context(), request.JK); err != nil {
+		// 监控状态统一使用 jkstate，与 GET /config/monitor 响应同名；jk 仅为旧客户端兼容别名。
+		state, exists := params["jkstate"]
+		if !exists {
+			state, exists = params["jk"]
+		}
+		if !exists {
+			c.JSON(http.StatusOK, php.NewEnvelope(400, "监控状态参数不能为空", nil))
+			return
+		}
+		if err := service.UpdateMonitorState(c.Request.Context(), state); err != nil {
 			writeSettingsError(c, err)
 			return
 		}

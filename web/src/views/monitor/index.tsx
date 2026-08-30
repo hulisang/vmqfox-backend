@@ -1,10 +1,12 @@
 import React from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { monitorApi, settingsApi } from '@/api'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Switch } from '@/components/ui/switch'
 import { QRCodeView } from '@/components/common/qr-code-view'
 import { CopyButton } from '@/components/common/copy-button'
 import { Activity, Heart, Radio, ShieldCheck, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import dayjs from 'dayjs'
 
 // 将时间戳格式化为 YYYY-MM-DD HH:mm:ss
@@ -18,6 +20,8 @@ const formatTimestamp = (val: string | number | undefined) => {
 }
 
 export const MonitorView: React.FC = () => {
+  const queryClient = useQueryClient()
+
   const { data: monitorData } = useQuery({
     queryKey: ['monitor-status'],
     queryFn: monitorApi.get,
@@ -29,10 +33,23 @@ export const MonitorView: React.FC = () => {
     queryFn: settingsApi.get,
   })
 
+  // 监控开关：后端 /config/monitor 以 jkstate 表达启用状态
+  const toggleMonitorMutation = useMutation({
+    mutationFn: (enabled: boolean) => monitorApi.update({ jkstate: enabled ? '1' : '0' }),
+    onSuccess: () => {
+      toast.success('监控开关已更新')
+      queryClient.invalidateQueries({ queryKey: ['monitor-status'] })
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '监控开关更新失败')
+    },
+  })
+
   // 根据最后心跳时间计算运行状态，超过 120 秒无心跳视为掉线
   const lastHeartSec = monitorData?.lastheart ? parseInt(monitorData.lastheart, 10) : 0
   const nowSec = Math.floor(Date.now() / 1000)
   const isOnline = lastHeartSec > 0 && nowSec - lastHeartSec < 120
+  const monitorEnabled = monitorData?.jkstate === '1'
 
   let statusText = '未绑定或暂无心跳'
   let statusColor = 'text-amber-600 dark:text-amber-400'
@@ -53,26 +70,41 @@ export const MonitorView: React.FC = () => {
     }
   }
 
-  // 生成 App 快速绑定配置字符串与二维码 (格式: host#key)
-  const host = window.location.origin
+  /**
+   * 生成 Android 监控端可解析的配置码。
+   *
+   * 当前 vmqApk 的 MainActivity 按 `/` 切分配置码，取第一段作为主机、第二段作为密钥，
+   * 并自行拼接协议前缀。因此这里必须输出 `host[:port]/key`，不能带 http(s):// 前缀，
+   * 否则 App 会因切分出 3 段而直接报「二维码错误」。
+   */
+  const host = window.location.host
   const key = settingsData?.key || ''
-  const configString = key ? `${host}#${key}` : ''
+  const configString = key ? `${host}/${key}` : ''
 
   return (
     <div className="space-y-6">
       {/* 顶部三栏指标卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* 监控端当前状态 */}
-        <Card className="p-5 flex items-center gap-4">
-          <div className={`p-3 rounded-2xl ${statusBg} ${statusColor} shrink-0`}>
-            <StatusIcon className="size-5" />
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground font-medium">监控端运行状态</div>
-            <div className={`text-sm font-semibold mt-1 ${statusColor}`}>
-              {statusText}
+        <Card className="p-5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className={`p-3 rounded-2xl ${statusBg} ${statusColor} shrink-0`}>
+              <StatusIcon className="size-5" />
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground font-medium">监控端运行状态</div>
+              <div className={`text-sm font-semibold mt-1 ${statusColor}`}>
+                {statusText}
+              </div>
             </div>
           </div>
+          {/* 监控总开关；关闭时后端将拒绝创建新订单 */}
+          <Switch
+            checked={monitorEnabled}
+            disabled={toggleMonitorMutation.isPending}
+            onCheckedChange={(checked) => toggleMonitorMutation.mutate(checked)}
+            aria-label="监控端总开关"
+          />
         </Card>
 
         {/* 最近一次心跳 */}
@@ -151,9 +183,13 @@ export const MonitorView: React.FC = () => {
               <ol className="list-decimal list-inside space-y-1.5 pl-1">
                 <li>安装系统配套的 Android 监控端 App (vmqApk)。</li>
                 <li>在手机设置中为 App 授予「<b>通知监听权限</b>」并加入「<b>电池白名单 / 无限制运行</b>」。</li>
-                <li>打开 App 使用扫一扫扫描左侧二维码，或手动填入本服务器地址和通讯 Key。</li>
+                <li>打开 App 使用扫一扫扫描左侧二维码，或手动填入左下方的配置数据。</li>
                 <li>点击「保存并启动监控」，上方状态指示灯变绿且显示实时心跳时间即代表连接成功。</li>
               </ol>
+              <div className="pt-1 text-[11px]">
+                配置数据格式为 <span className="font-mono text-foreground">主机[:端口]/通讯密钥</span>，
+                App 会按该格式解析服务器地址与密钥。本机调试请使用局域网 IP，不要使用 localhost。
+              </div>
             </div>
 
             <div className="flex items-center justify-between p-3.5 rounded-2xl border border-border/60 bg-background/50">
@@ -164,7 +200,7 @@ export const MonitorView: React.FC = () => {
               <a
                 href="https://github.com/szvone/vmqApk/releases"
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-all"
               >
                 下载最新版 APK

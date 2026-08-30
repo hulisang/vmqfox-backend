@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -224,7 +223,7 @@ func apiQRCodeData(value qrcode.QRCode) gin.H {
 		"type":       int(value.Type),
 		"type_text":  qrcodePaymentTypeText(value.Type),
 		"pay_url":    value.PayURL,
-		"price":      json.Number(order.FormatCents(value.PriceCents)),
+		"price":      order.FormatCents(value.PriceCents),
 		"state":      int(value.State),
 		"state_text": qrcodeStateText(value.State),
 	}
