@@ -34,8 +34,8 @@ export const OrdersView: React.FC = () => {
       toast.success('补单通知已成功触发')
       queryClient.invalidateQueries({ queryKey: ['orders-list'] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || '补单失败')
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '补单失败')
     },
   })
 
@@ -46,8 +46,8 @@ export const OrdersView: React.FC = () => {
       toast.success('订单已删除')
       queryClient.invalidateQueries({ queryKey: ['orders-list'] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || '删除失败')
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '删除失败')
     },
   })
 
@@ -58,6 +58,9 @@ export const OrdersView: React.FC = () => {
       toast.success(`已关闭 ${res?.count ?? 0} 笔超时未支付订单`)
       queryClient.invalidateQueries({ queryKey: ['orders-list'] })
     },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '关闭超时订单失败')
+    },
   })
 
   // 清理过期订单 Mutation
@@ -66,6 +69,9 @@ export const OrdersView: React.FC = () => {
     onSuccess: (res) => {
       toast.success(`已删除 ${res?.count ?? 0} 笔过期/关闭订单`)
       queryClient.invalidateQueries({ queryKey: ['orders-list'] })
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '清理过期订单失败')
     },
   })
 
@@ -81,6 +87,7 @@ export const OrdersView: React.FC = () => {
             { label: '全部状态', value: undefined },
             { label: '等待支付', value: 0 },
             { label: '已支付', value: 1 },
+            { label: '通知失败', value: 2 },
             { label: '已关闭', value: -1 },
           ].map((item) => (
             <button

@@ -26,8 +26,8 @@ export const LoginView: React.FC = () => {
       setAuth(res.accessToken, res.username, res.expiresAt)
       toast.success('登录成功，欢迎回来！')
       window.location.hash = '#/dashboard'
-    } catch (err: any) {
-      toast.error(err.message || '登录失败，请检查账号密码')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '登录失败，请检查账号密码')
     } finally {
       setLoading(false)
     }

@@ -1,5 +1,54 @@
 import { create } from 'zustand'
 
+/**
+ * 管理员会话状态。
+ *
+ * access token 只写入 sessionStorage：关闭标签页即失效，
+ * 不再像 localStorage 那样长期驻留在浏览器磁盘上被任意脚本读取。
+ * 主题偏好不是凭据，仍保留在 localStorage 以便跨会话记忆。
+ */
+const TOKEN_KEY = 'vmq_token'
+const USER_KEY = 'vmq_user'
+const EXPIRES_KEY = 'vmq_exp'
+
+/** 读取会话存储；在禁用存储的隐私模式下返回 null 而不是抛错 */
+function readSession(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeSession(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    // 存储不可用时仅依赖内存中的状态，不影响本次会话可用性
+  }
+}
+
+function removeSession(key: string): void {
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    // 同上，忽略存储异常
+  }
+}
+
+/** 清理历史版本遗留在 localStorage 中的长期 Token，避免旧凭据继续留存 */
+function purgeLegacyLocalToken(): void {
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(USER_KEY)
+    localStorage.removeItem(EXPIRES_KEY)
+  } catch {
+    // 忽略存储异常
+  }
+}
+
+purgeLegacyLocalToken()
+
 interface AuthState {
   token: string | null
   username: string | null
@@ -10,21 +59,21 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  token: localStorage.getItem('vmq_token'),
-  username: localStorage.getItem('vmq_user'),
-  expiresAt: Number(localStorage.getItem('vmq_exp')) || null,
+  token: readSession(TOKEN_KEY),
+  username: readSession(USER_KEY),
+  expiresAt: Number(readSession(EXPIRES_KEY)) || null,
 
   setAuth: (token, username, expiresAt) => {
-    localStorage.setItem('vmq_token', token)
-    localStorage.setItem('vmq_user', username)
-    localStorage.setItem('vmq_exp', String(expiresAt))
+    writeSession(TOKEN_KEY, token)
+    writeSession(USER_KEY, username)
+    writeSession(EXPIRES_KEY, String(expiresAt))
     set({ token, username, expiresAt })
   },
 
   clearAuth: () => {
-    localStorage.removeItem('vmq_token')
-    localStorage.removeItem('vmq_user')
-    localStorage.removeItem('vmq_exp')
+    removeSession(TOKEN_KEY)
+    removeSession(USER_KEY)
+    removeSession(EXPIRES_KEY)
     set({ token: null, username: null, expiresAt: null })
   },
 
@@ -36,36 +85,58 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return false
     }
     return true
-  }
+  },
 }))
 
+type Theme = 'light' | 'dark'
+
+const THEME_KEY = 'vmq_theme'
+
+function applyThemeClass(theme: Theme): void {
+  if (theme === 'dark') {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
+}
+
+function readTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'dark' || stored === 'light') return stored
+  } catch {
+    // 忽略存储异常
+  }
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+}
+
+function writeTheme(theme: Theme): void {
+  try {
+    localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    // 忽略存储异常
+  }
+}
+
 interface ThemeState {
-  theme: 'light' | 'dark'
-  setTheme: (theme: 'light' | 'dark') => void
+  theme: Theme
+  setTheme: (theme: Theme) => void
   toggleTheme: () => void
 }
 
 export const useThemeStore = create<ThemeState>((set) => ({
-  theme: (localStorage.getItem('vmq_theme') as 'light' | 'dark') || 'light',
+  theme: readTheme(),
   setTheme: (theme) => {
-    localStorage.setItem('vmq_theme', theme)
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
+    writeTheme(theme)
+    applyThemeClass(theme)
     set({ theme })
   },
   toggleTheme: () => {
     set((state) => {
-      const nextTheme = state.theme === 'dark' ? 'light' : 'dark'
-      localStorage.setItem('vmq_theme', nextTheme)
-      if (nextTheme === 'dark') {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-      }
+      const nextTheme: Theme = state.theme === 'dark' ? 'light' : 'dark'
+      writeTheme(nextTheme)
+      applyThemeClass(nextTheme)
       return { theme: nextTheme }
     })
-  }
+  },
 }))

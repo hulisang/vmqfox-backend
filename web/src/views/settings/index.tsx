@@ -50,8 +50,8 @@ export const SettingsView: React.FC = () => {
       toast.success('系统配置已成功保存')
       queryClient.invalidateQueries({ queryKey: ['system-settings'] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || '保存配置失败')
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : '保存配置失败')
     },
   })
 
@@ -60,12 +60,14 @@ export const SettingsView: React.FC = () => {
     updateMutation.mutate(formData)
   }
 
-  // 随机生成 32 位安全 Key
+  // 随机生成 32 位安全 Key：使用 crypto.getRandomValues，避免 Math.random 产生可预测密钥
   const generateRandomKey = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    const randomBytes = new Uint32Array(32)
+    crypto.getRandomValues(randomBytes)
     let res = ''
-    for (let i = 0; i < 32; i++) {
-      res += chars.charAt(Math.floor(Math.random() * chars.length))
+    for (let i = 0; i < randomBytes.length; i++) {
+      res += chars.charAt(randomBytes[i] % chars.length)
     }
     setFormData((prev) => ({ ...prev, key: res }))
   }

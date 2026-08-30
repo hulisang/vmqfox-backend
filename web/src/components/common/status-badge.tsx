@@ -1,5 +1,5 @@
 import React from 'react'
-import { BadgeCheck, Clock, XCircle, HelpCircle } from 'lucide-react'
+import { BadgeCheck, Clock, XCircle, HelpCircle, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface StatusBadgeProps {
@@ -9,7 +9,8 @@ interface StatusBadgeProps {
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ state, stateText, className }) => {
-  // state 0: 未支付, 1: 已支付, -1: 已过期/已关闭
+  // 状态取值与 Go domain/order.Status 一致：
+  // -1 已关闭、0 未支付、1 已支付、2 通知失败（款已收到但商户回调未成功）
   let bg = 'bg-muted/80 text-muted-foreground border-border/80'
   let Icon = HelpCircle
   let text = stateText || '未知'
@@ -22,10 +23,14 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ state, stateText, clas
     bg = 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20'
     Icon = Clock
     text = stateText || '等待支付'
-  } else if (state === -1 || state === 2) {
+  } else if (state === 2) {
+    bg = 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20'
+    Icon = AlertTriangle
+    text = stateText || '通知失败'
+  } else if (state === -1) {
     bg = 'bg-destructive/15 text-destructive border-destructive/20'
     Icon = XCircle
-    text = stateText || '已关闭/已超时'
+    text = stateText || '已关闭'
   }
 
   return (

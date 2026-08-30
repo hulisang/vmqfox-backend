@@ -51,7 +51,7 @@ export const AppShell: React.FC<AppShellProps> = ({ currentTab, onTabChange, chi
     try {
       await authApi.logout()
     } catch {
-      // ignore
+      // 服务端登出失败不阻塞本地会话清理，本地 Token 必须无条件失效
     }
     clearAuth()
     toast.success('已退出登录')
