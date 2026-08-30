@@ -1,4 +1,3 @@
-# 仅发布 Go 镜像，不再执行 PHP 打包。
 name: Publish Go backend image
 
 on:
@@ -42,6 +41,8 @@ jobs:
             type=sha,prefix=go-
             type=ref,event=tag,prefix=go-
 
+      # Dockerfile 的 web-builder 阶段会从 web/ 源码重新构建前端并校验资源完整性，
+      # 因此镜像内嵌入的一定是本次提交的产物，而非本地忽略目录中的旧 static/out。
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

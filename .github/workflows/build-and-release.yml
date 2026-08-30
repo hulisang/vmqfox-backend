@@ -13,6 +13,8 @@ permissions:
 
 env:
   GO_VERSION: "1.26.5"
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.22.0"
   GOFLAGS: "-mod=mod"
 
 jobs:
@@ -22,14 +24,58 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      # 先构建前端：产物写入 internal/http/static/out，供后续 go:embed 使用。
+      # 发布包不允许依赖仓库忽略目录中的旧 static/out。
+      - name: Build embedded React frontend
+        shell: bash
+        working-directory: web
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Verify embedded asset integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=internal/http/static/out
+          test -f "$out/index.html" || { echo "构建产物缺少 index.html"; exit 1; }
+          grep -oE '(src|href)="/assets/[^"]+"' "$out/index.html" \
+            | sed -E 's#^[a-z]+="/assets/(.*)"$#\1#' \
+            | sort -u > referenced-assets.txt
+          test -s referenced-assets.txt || { echo "index.html 未引用任何 assets 资源"; exit 1; }
+          while read -r asset; do
+            test -f "$out/assets/$asset" || { echo "index.html 引用的资源缺失: $asset"; exit 1; }
+            echo "已校验前端资源: $asset"
+          done < referenced-assets.txt
+          rm -f referenced-assets.txt
+
       - name: Resolve Go modules
         run: go mod download
+
+      - name: Static analysis and tests
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go test ./...
 
       - name: Build Linux binaries
         shell: bash

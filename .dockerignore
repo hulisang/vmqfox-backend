@@ -19,3 +19,11 @@ composer.json
 composer.lock
 composer.phar
 think
+
+# 前端依赖与本地构建产物：镜像内由 web-builder 阶段重新安装并构建，
+# 不允许把宿主机的 node_modules 或旧 static/out 带入构建上下文。
+web/node_modules
+web/dist
+web/.pnpm-store
+web/tsconfig.tsbuildinfo
+internal/http/static/out

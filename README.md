@@ -28,7 +28,7 @@
 | `VMQ_SERVER_PORT` | `8080` | API 服务监听端口 |
 | `VMQ_SERVER_MODE` | `release` | Gin 框架运行模式 (`debug` / `release`) |
 | `VMQ_RUNTIME_MODE` | `writer` | 运行模式。`writer` 模式下会随服务启动后台定时轮询任务（过期处理、Outbox 推送） |
-| `VMQ_FRONTEND_URL` | `http://localhost:3006` | 前端管理台地址（用于跨域与支付跳转） |
+| `VMQ_FRONTEND_URL` | *必填* | 买家可访问的最终公网 Origin，用于生成收银台链接。单服务同源部署时与对外访问地址一致，结尾不带 `/` |
 | `VMQ_TOKEN_SECRET` | *必填* | 至少 32 位的 JWT 签名密钥（离线生成随机值） |
 | `VMQ_TOKEN_ISSUER` | `vmqfox` | JWT Token 签发者名 |
 | `VMQ_TOKEN_TTL` | `24h` | JWT 凭据有效时长 |
@@ -40,7 +40,7 @@
 | `VMQ_DB_CHARSET` | `utf8mb4` | 字符集 |
 | `VMQ_LIFECYCLE_POLL_INTERVAL`| `10s` | 订单超时关闭扫描周期 |
 | `VMQ_NOTIFICATION_POLL_INTERVAL`| `2s` | Outbox 推送通知扫描周期 |
-| `VMQ_ALLOWED_ORIGIN` | 同 `VMQ_FRONTEND_URL` | 允许跨域访问的精确 Origin，不接受通配 |
+| `VMQ_ALLOWED_ORIGIN` | 空 | 允许跨域访问 API 的精确 Origin 列表（逗号分隔）。留空表示**拒绝所有跨域请求**；同源部署无需配置，且不接受通配符 `*` |
 | `VMQ_MONITOR_HEARTBEAT_TIMEOUT` | `3m` | 超过该时长未收到心跳即判定挂机端离线 |
 | `VMQ_MONITOR_SIGN_TTL` | `5m` | 挂机端心跳/推送签名时间戳的双向允许偏移窗口，超窗按重放拒绝 |
 | `VMQ_RATE_LOGIN_LIMIT` / `VMQ_RATE_LOGIN_WINDOW` | `10` / `1m` | 登录端点的每客户端固定窗口额度 |
@@ -50,23 +50,42 @@
 | `VMQ_RATE_QRCODE_LIMIT` / `VMQ_RATE_QRCODE_WINDOW` | `30` / `1m` | 二维码生成端点的每客户端固定窗口额度 |
 | `VMQ_RATE_MONITOR_HEART_LIMIT` / `VMQ_RATE_MONITOR_HEART_WINDOW` | `120` / `1m` | 挂机端心跳的每客户端固定窗口额度 |
 | `VMQ_RATE_MONITOR_PUSH_LIMIT` / `VMQ_RATE_MONITOR_PUSH_WINDOW` | `60` / `1m` | 挂机端推送的每客户端固定窗口额度 |
-| `VMQ_TRUSTED_PROXY_CIDR` | 空 | 真实反向代理的 IP/CIDR 列表。留空时仅以 TCP 对端识别客户端，绝不信任自带的转发头；通过 Compose 网关部署时必须填写实际网关网段，否则所有客户端会按网关地址共用限流桶 |
+| `VMQ_TRUSTED_PROXY_CIDR` | 空 | 真实反向代理的 IP/CIDR 列表。留空时仅以 TCP 对端识别客户端，绝不信任自带的转发头；置于反向代理之后时必须填写实际代理网段，否则所有客户端会按代理地址共用限流桶 |
 | `VMQ_NOTIFY_ALLOW_CIDR` | 空 | 出站 Webhook 的内网 IP/CIDR 精确白名单，留空表示禁止一切私网与回环目标 |
+| `VMQ_NOTIFY_ALLOW_HTTP` | `false` | 出站 Webhook 默认只允许 `https`。设为 `true` 才接受明文 `http`，属于尚未关闭的安全门槛 |
+| `VMQ_HTTP_PORT` | `8000` | Compose 对外暴露的宿主端口，映射到容器内 Go 服务的 8080 |
 
 ---
 
 ## 🚀 极速部署与运行
 
+### 0. 前端资源构建（必做，Go 二进制会嵌入这份产物）
+
+管理台与收银台前端源码位于 `web/`（React + Vite）。构建产物写入 `internal/http/static/out`，
+由 `go:embed` 嵌入二进制，因此**必须先构建前端再编译 Go**，否则根路径没有页面可提供。
+
+```bash
+cd web
+pnpm install --frozen-lockfile
+pnpm build
+cd ..
+```
+
+仓库不提交构建产物，`internal/http/static/out` 只保留 `.gitkeep` 占位。
+使用 Docker 或 CI 时无需手动执行本步骤：镜像的 `web-builder` 阶段与发布工作流都会从源码重新构建并校验资源完整性。
+
 ### 1. 本地直接编译运行
 确保您已配置 Go 1.26.5 或更高环境。
 
 ```bash
-# 编译可执行程序
+# 编译可执行程序（前提：已完成上一步的前端构建）
 go build -o vmqfox-api ./cmd/vmqfox-api
 
 # 启动 Web 服务 (请确保已通过命令行或 .env 注入上述环境变量)
 ./vmqfox-api
 ```
+
+服务启动后，`/` 提供嵌入的前端页面，`/assets/*` 提供静态资源，`/api/*` 提供接口，三者同源。
 
 ### 2. 数据库结构初始化
 项目运行时**不会**自动执行建表操作。
@@ -124,12 +143,19 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
 
 ### 5. 使用 Docker Compose 一键启动
 根目录下提供了直接可用的部署骨架：
-1. 拷贝 `env.example` 到 `.env` 并填写其中的参数（主要是数据库密码、Token 签名秘钥等）。
+1. 拷贝 `env.example` 到 `.env` 并填写其中的参数（数据库密码、Token 签名密钥、`VMQ_FRONTEND_URL` 等）。
 2. 执行启动指令：
    ```bash
    docker compose up -d --build
    ```
-3. 容器会自动完成 Nginx 网关、Go API、前端面板以及 MySQL 容器的装配，访问前端面板端口即可进行二维码管理、监控端绑定和系统设置。
+3. Compose 只启动两个服务：`vmqfox-api`（内含嵌入式前端）与 `mysql`。
+   镜像构建时会先安装锁定依赖构建 React 资源、校验 `index.html` 引用的每个文件都存在，再编译并嵌入 Go 二进制。
+4. 访问 `http://<主机>:${VMQ_HTTP_PORT:-8000}` 即为唯一生产入口：管理台、收银台与 API 全部由该服务提供。
+
+> [!NOTE]
+> 若需在前面独立终止 TLS，可参考 `docker/nginx/default.conf`：它只做纯转发，不注入任何 CORS 头，
+> 安全响应头与 CSP 由 Go 的 `SecurityHeaders` 中间件统一下发。反代必须透传 `X-Forwarded-Proto`，
+> 服务据此决定是否下发 HSTS，同时需在 `VMQ_TRUSTED_PROXY_CIDR` 中登记该代理网段。
 
 ---
 
@@ -165,6 +191,9 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
 ### 3. 公共支付网关与监控协议
 
 建单与监控端请求需商户 v2 HMAC-SHA-256 验签；匿名收银台读取请求使用 `publicToken` 作为持有式凭据。
+* **前端与静态资源**：
+  * `GET /`、`GET /index.html` - 返回嵌入的前端页面（hash 路由），响应 `Cache-Control: no-cache`。
+  * `GET /assets/*` - 带内容哈希的静态资源，响应 `Cache-Control: public, max-age=31536000, immutable`。
 * **网关链路**：
   * `POST /api/order/create` - 传入商户单号、金额、类型，验签后自动匹配二维码，占用价格锁；响应中的 `publicToken` 是唯一的匿名收银台凭据。
   * `GET /api/order/get/:publicToken` - 获取前台收银台支付展示参数；只接受 64 位随机公开令牌，响应不包含内部订单号、回调地址或透传参数。
@@ -176,7 +205,17 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
   * `ANY /api/monitor/heart` - 挂机 App 心跳同步，更新 `lastHeart` 时间。
   * `ANY /api/monitor/push` - 挂机 App 匹配通知栏到账信息推送至服务端，自动完成订单核销、释放价格锁并压入 Outbox 异步回调商户。
 
-### 4. 签名协议 v2（HMAC-SHA-256）
+### 4. 安全响应头与跨域策略
+
+所有响应由 `SecurityHeaders` 中间件统一附加 `X-Content-Type-Options`、`Referrer-Policy`、
+`X-Frame-Options`、`Cross-Origin-Opener-Policy` 与 CSP。CSP 的 `script-src` 仅允许同源脚本与携带
+本次请求 nonce 的内联脚本，因此前端入口不含无 nonce 的内联 `<script>`；`isHtml=1` 的支付跳转页
+会自动注入该 nonce。只有请求确实经由 HTTPS 到达时才下发 HSTS，避免强制升级中断仍走 HTTP 的挂机端。
+
+跨域遵循默认拒绝：`VMQ_ALLOWED_ORIGIN` 留空时不下发任何 `Access-Control-Allow-Origin`，
+配置值中的 `*` 会被忽略，命中白名单时才回显请求 Origin 并附加 `Vary: Origin`。
+
+### 5. 签名协议 v2（HMAC-SHA-256）
 
 通讯密钥作为 HMAC 密钥参与运算，不再拼接进签名明文；结果取 64 位小写 hex，服务端以常量时间比较。
 v1 的 MD5 签名已停止受理，仅保留用于识别未升级的旧 SDK 并给出明确报错。
@@ -204,4 +243,17 @@ printf '%s' 't=1773500000000' | openssl dgst -sha256 -hmac 'testkey123456' -hex
 ---
 
 ## 📝 开发者备注
-* 本项目纯 Go 逻辑的单元验证及接口覆盖已通过 `scratch/test_api.sh` 集成回归，若对代码做出了二次开发修改，请随时运行该脚本完成对本地服务的回归校验。
+
+修改代码后建议按以下顺序自检；本仓库没有额外的集成脚本，质量门禁与发布工作流保持一致：
+
+```bash
+# 前端类型检查与构建（同时刷新嵌入资源）
+cd web && pnpm build && cd ..
+
+# 后端静态检查与测试
+go vet ./...
+go test ./...
+
+# 完整镜像构建（含前端构建与资源完整性校验）
+docker compose build vmqfox-api
+```
