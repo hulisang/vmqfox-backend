@@ -2,8 +2,11 @@ package http
 
 import (
 	"log"
+	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hulisang/vmqfox-backend/internal/compat/php"
 	"github.com/hulisang/vmqfox-backend/internal/config"
 	"github.com/hulisang/vmqfox-backend/internal/http/handler"
 	"github.com/hulisang/vmqfox-backend/internal/http/middleware"
@@ -56,6 +59,7 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 
 	r.Use(
 		middleware.RequestMetadata(),
+		middleware.SecurityHeaders(),
 		middleware.Recovery(deps.Logger),
 		middleware.AccessLog(deps.Logger, clientIPResolver),
 		middleware.CORS(deps.Origin),
@@ -161,32 +165,55 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 
 	r.GET("/health", h.Health)
 	r.GET("/ready", h.Ready)
-	registerStatic(r, deps)
+	registerStatic(r, h, deps)
 
 	registerAPI(r, h, deps)
 	registerMonitor(r, h, deps)
 	return r
 }
 
-func registerStatic(r *gin.Engine, deps RouterDeps) {
+// registerStatic 托管嵌入的前端资源。
+// 未执行前端构建时不伪造页面：根路径退回到 API 状态响应，由部署检查发现资源缺失。
+func registerStatic(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
 	assetsFS, err := static.AssetsFileSystem()
 	if err != nil {
 		if deps.Logger != nil {
-			deps.Logger.Printf("静态前端资源初始化跳过: %v", err)
+			deps.Logger.Printf("静态前端资源未嵌入，根路径仅返回 API 状态: %v", err)
 		}
+		r.GET("/", h.Root)
 		return
 	}
 
-	// 托管前端静态资源
-	r.StaticFS("/assets", assetsFS)
-	r.GET("/", func(c *gin.Context) {
-		indexHTML, err := static.ReadIndexHTML()
-		if err != nil {
-			c.String(200, "VMQFox API Running")
+	// 资源文件名带内容哈希，可长期缓存；HTML 必须每次回源校验，避免旧页面壳加载新资源。
+	fileServer := http.StripPrefix("/assets", http.FileServer(assetsFS))
+	serveAsset := func(c *gin.Context) {
+		// 拒绝目录列举，只允许具体文件
+		if strings.HasSuffix(c.Request.URL.Path, "/") {
+			c.Status(http.StatusNotFound)
 			return
 		}
-		c.Data(200, "text/html; charset=utf-8", indexHTML)
-	})
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	}
+	r.GET("/assets/*filepath", serveAsset)
+	r.HEAD("/assets/*filepath", serveAsset)
+
+	serveIndex := func(c *gin.Context) {
+		indexHTML, err := static.ReadIndexHTML()
+		if err != nil {
+			if deps.Logger != nil {
+				deps.Logger.Printf("读取嵌入的 index.html 失败: %v", err)
+			}
+			c.JSON(http.StatusServiceUnavailable, php.NewEnvelope(503, "前端资源不可用", nil))
+			return
+		}
+		c.Header("Cache-Control", "no-cache")
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+	}
+
+	// 前端使用 hash 路由，所有页面共用同一份 index.html。
+	r.GET("/", serveIndex)
+	r.GET("/index.html", serveIndex)
 }
 
 func registerAPI(r *gin.Engine, h handler.Handlers, deps RouterDeps) {

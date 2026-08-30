@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/hulisang/vmqfox-backend/internal/compat/php"
 	"github.com/hulisang/vmqfox-backend/internal/domain/order"
 	"github.com/hulisang/vmqfox-backend/internal/domain/payment"
+	"github.com/hulisang/vmqfox-backend/internal/http/middleware"
 	"github.com/hulisang/vmqfox-backend/internal/usecase"
 )
 
@@ -69,17 +69,17 @@ func newOrderHandlers(service OrderManager) OrderHandlers {
 }
 
 type PublicOrderView struct {
-	PayID            string      `json:"payId"`
-	PayType          int         `json:"payType"`
-	Price            json.Number `json:"price"`
-	ReallyPrice      json.Number `json:"reallyPrice"`
-	PayURL           string      `json:"payUrl"`
-	IsAuto           int         `json:"isAuto"`
-	State            int         `json:"state"`
-	StateText        string      `json:"stateText"`
-	TimeoutMinutes   int         `json:"timeOut"`
-	CreatedAt        int64       `json:"date"`
-	RemainingSeconds int64       `json:"remainingSeconds"`
+	PayID            string `json:"payId"`
+	PayType          int    `json:"payType"`
+	Price            string `json:"price"`
+	ReallyPrice      string `json:"reallyPrice"`
+	PayURL           string `json:"payUrl"`
+	IsAuto           int    `json:"isAuto"`
+	State            int    `json:"state"`
+	StateText        string `json:"stateText"`
+	TimeoutMinutes   int    `json:"timeOut"`
+	CreatedAt        int64  `json:"date"`
+	RemainingSeconds int64  `json:"remainingSeconds"`
 }
 
 type CreateOrderResponse struct {
@@ -216,9 +216,9 @@ func orderStatisticsAPIHandler(service OrderManager) gin.HandlerFunc {
 			"todayOrder":        statistics.TodayOrders,
 			"todaySuccessOrder": statistics.TodayPaidOrders,
 			"todayCloseOrder":   statistics.TodayClosedOrders,
-			"todayMoney":        amountNumber("", statistics.TodayPaidCents),
+			"todayMoney":        order.FormatCents(statistics.TodayPaidCents),
 			"countOrder":        statistics.TotalOrders,
-			"countMoney":        amountNumber("", statistics.TotalPaidCents),
+			"countMoney":        order.FormatCents(statistics.TotalPaidCents),
 		}))
 	}
 }
@@ -417,8 +417,8 @@ func apiOrderViewData(result usecase.OrderView) PublicOrderView {
 	return PublicOrderView{
 		PayID:            value.PayID,
 		PayType:          int(value.Type),
-		Price:            amountNumber(value.PriceText, value.PriceCents),
-		ReallyPrice:      amountNumber(value.ReallyPriceText, value.ReallyPriceCents),
+		Price:            amountText(value.PriceText, value.PriceCents),
+		ReallyPrice:      amountText(value.ReallyPriceText, value.ReallyPriceCents),
 		PayURL:           value.PayURL,
 		IsAuto:           boolInt(value.IsAuto),
 		State:            int(publicState),
@@ -503,28 +503,11 @@ func apiOrderStateText(value order.Status) string {
 	}
 }
 
-func amountNumber(text string, cents int64) json.Number {
-	raw := strings.TrimSpace(text)
-	if parsed, err := order.ParseAmountCents(raw); err == nil && parsed == cents && validJSONNumber(raw) {
-		return json.Number(raw)
-	}
-	return json.Number(order.FormatCents(cents))
-}
-
-func validJSONNumber(value string) bool {
-	var number json.Number
-	decoder := json.NewDecoder(strings.NewReader(value))
-	decoder.UseNumber()
-	if err := decoder.Decode(&number); err != nil || number.String() != value {
-		return false
-	}
-	var trailing any
-	return errors.Is(decoder.Decode(&trailing), io.EOF)
-}
-
 func amountText(text string, cents int64) string {
-	if text != "" {
-		return text
+	raw := strings.TrimSpace(text)
+	// 只有当商户提交的原始金额文本与内部分值完全等价时才回显原文，避免格式漂移或伪造精度。
+	if parsed, err := order.ParseAmountCents(raw); err == nil && parsed == cents {
+		return raw
 	}
 	return order.FormatCents(cents)
 }
@@ -536,11 +519,19 @@ func boolInt(value bool) int {
 	return 0
 }
 
+// writePaymentRedirectHTML 输出跳转页。内联脚本携带本次请求的 CSP nonce，
+// 因此无需为该端点放开 script-src 'unsafe-inline'。
 func writePaymentRedirectHTML(c *gin.Context, redirectURL string, fullPage bool) {
 	encodedURL, _ := json.Marshal(redirectURL)
+	nonceAttribute := ""
+	if nonce := middleware.CSPNonce(c); nonce != "" {
+		encodedNonce, _ := json.Marshal(nonce)
+		nonceAttribute = " nonce=" + string(encodedNonce)
+	}
 	c.Header("Content-Type", php.ContentTypeHTML)
+	c.Header("Cache-Control", "no-store")
 	if !fullPage {
-		c.String(http.StatusOK, "<script>window.location.href = %s</script>", encodedURL)
+		c.String(http.StatusOK, "<script%s>window.location.href = %s</script>", nonceAttribute, encodedURL)
 		return
 	}
 	c.String(http.StatusOK, `<!DOCTYPE html>
@@ -559,9 +550,9 @@ func writePaymentRedirectHTML(c *gin.Context, redirectURL string, fullPage bool)
 <body>
   <div class="loading"></div>
   <div class="text">正在跳转到支付页面，请稍候...</div>
-  <script>window.location.href = %s;</script>
+  <script%s>window.location.href = %s;</script>
 </body>
-</html>`, encodedURL)
+</html>`, nonceAttribute, encodedURL)
 }
 
 func writeOrderUnavailable(c *gin.Context) {

@@ -15,6 +15,7 @@ import (
 
 const RequestIDKey = "request_id"
 
+// RequestMetadata 只负责请求标识；安全响应头由 SecurityHeaders 统一下发，避免两处重复设置。
 func RequestMetadata() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
@@ -23,9 +24,6 @@ func RequestMetadata() gin.HandlerFunc {
 		}
 		c.Set(RequestIDKey, requestID)
 		c.Header("X-Request-ID", requestID)
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("X-Frame-Options", "SAMEORIGIN")
 		c.Next()
 	}
 }

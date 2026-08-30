@@ -32,6 +32,10 @@ type Config struct {
 type OutboundConfig struct {
 	AllowedCIDRs []*net.IPNet
 	AllowedIPs   []net.IP
+	// AllowInsecureHTTP 为 false 时，出站商户通知只允许 https。
+	// 仅在确有未升级 HTTPS 的存量商户时通过 VMQ_NOTIFY_ALLOW_HTTP=true 显式放开，
+	// 且该状态应视为尚未关闭的安全门槛。
+	AllowInsecureHTTP bool
 }
 
 type RateLimitRule struct {
@@ -161,10 +165,9 @@ func Load() (Config, error) {
 	}
 
 	frontendURL := first([]string{"VMQ_FRONTEND_URL", "APP_FRONTEND_URL"}, "")
+	// 未配置允许的跨域来源时保持为空，由 CORS 中间件默认拒绝跨域；
+	// 单服务同源部署本身不需要 CORS，因此不再回退为通配符 "*"。
 	allowedOrigin := first([]string{"VMQ_ALLOWED_ORIGIN"}, frontendURL)
-	if allowedOrigin == "" {
-		allowedOrigin = "*"
-	}
 
 	mode := RuntimeMode(strings.ToLower(first([]string{"VMQ_RUNTIME_MODE", "VMQ_WRITE_MODE", "WRITE_MODE"}, string(RuntimeWriter))))
 	if mode != RuntimeShadow && mode != RuntimeWriter {
@@ -282,6 +285,10 @@ func Load() (Config, error) {
 	}
 
 	outboundAllowedCIDRs, outboundAllowedIPs := parseAllowCIDR(first([]string{"VMQ_NOTIFY_ALLOW_CIDR", "NOTIFY_ALLOW_CIDR"}, ""))
+	outboundAllowHTTP, err := boolean("VMQ_NOTIFY_ALLOW_HTTP", false)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Server: ServerConfig{
@@ -325,8 +332,9 @@ func Load() (Config, error) {
 			MonitorSignTTL:             monitorSignTTL,
 		},
 		Outbound: OutboundConfig{
-			AllowedCIDRs: outboundAllowedCIDRs,
-			AllowedIPs:   outboundAllowedIPs,
+			AllowedCIDRs:      outboundAllowedCIDRs,
+			AllowedIPs:        outboundAllowedIPs,
+			AllowInsecureHTTP: outboundAllowHTTP,
 		},
 		RateLimit: RateLimitConfig{
 			Login:        loginRate,
@@ -360,6 +368,22 @@ func first(names []string, fallback string) string {
 
 func integer(name string, fallback int) (int, error) {
 	return integerAny([]string{name}, fallback)
+}
+
+// boolean 解析布尔型开关，只接受明确的真假字面量，避免拼写错误被静默当作 true。
+func boolean(name string, fallback bool) (bool, error) {
+	value, ok := lookup(name)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s 只允许 true/false", name)
+	}
 }
 
 func integerAny(names []string, fallback int) (int, error) {
