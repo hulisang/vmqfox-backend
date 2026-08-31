@@ -172,7 +172,8 @@ export const MonitorView: React.FC = () => {
                 <div className="text-[11px] text-muted-foreground mt-0.5">支持微信/支付宝官方通知与免密支付自动监听</div>
               </div>
               <a
-                href="https://github.com/szvone/vmqApk/releases"
+                /* 配套监控端客户端已改由本人 fork 维护，下载入口指向 hulisang/vmqApk 的 Releases */
+                href="https://github.com/hulisang/vmqApk/releases"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-3.5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-all"
