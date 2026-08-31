@@ -1,5 +1,7 @@
 # V免签 (VMQFox) —— 单用户 Go 语言免签支付网关
 
+![版本](https://img.shields.io/github/v/release/hulisang/vmqfox-backend?label=%E7%89%88%E6%9C%AC&color=brightgreen) ![Go](https://img.shields.io/badge/Go-1.26.5-00ADD8?label=Go) ![纯Go单二进制](https://img.shields.io/badge/%E6%9E%B6%E6%9E%84-%E7%BA%AFGO%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-4A7C59) ![构建发布](https://github.com/hulisang/vmqfox-backend/actions/workflows/build-and-release.yml/badge.svg) ![Docker镜像](https://github.com/hulisang/vmqfox-backend/actions/workflows/docker-publish.yml/badge.svg)
+
 本项目是针对个人开发者的免签支付网关。现已完成**全面重构**，从原 ThinkPHP 8 版本彻底收敛为 **纯 Go 语言版本 (Go-only)**，移除了对 PHP、PHP-FPM、Composer 以及外部 Redis 的任何依赖。
 
 > [!IMPORTANT]
