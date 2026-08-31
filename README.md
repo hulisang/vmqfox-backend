@@ -186,7 +186,7 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
   * `GET /api/config/settings` - 获取系统收款配置、有效期、区分额度方式等。
   * `POST /api/config/settings` (及别名 `POST /api/config/save`) - 保存/更新系统全局配置与管理员密码。
   * `GET /api/config/monitor` - 读取当前系统配置的监控心跳状态。
-  * `POST /api/config/monitor` - 设置/更改监控在线指示参数。
+  * `POST /api/config/monitor` - 手动覆盖监控状态参数 `jkstate`（该值是监控端在线状态而非总开关，手动写入会在下次心跳或生命周期任务时被自动纠正，仅为兼容旧客户端保留）。
 
 ### 3. 公共支付网关与监控协议
 

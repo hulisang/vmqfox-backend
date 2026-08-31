@@ -1,12 +1,10 @@
 import React from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { monitorApi, settingsApi } from '@/api'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Switch } from '@/components/ui/switch'
 import { QRCodeView } from '@/components/common/qr-code-view'
 import { CopyButton } from '@/components/common/copy-button'
 import { Activity, Heart, Radio, ShieldCheck, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
-import { toast } from 'sonner'
 import dayjs from 'dayjs'
 
 // 将时间戳格式化为 YYYY-MM-DD HH:mm:ss
@@ -20,8 +18,6 @@ const formatTimestamp = (val: string | number | undefined) => {
 }
 
 export const MonitorView: React.FC = () => {
-  const queryClient = useQueryClient()
-
   const { data: monitorData } = useQuery({
     queryKey: ['monitor-status'],
     queryFn: monitorApi.get,
@@ -33,41 +29,26 @@ export const MonitorView: React.FC = () => {
     queryFn: settingsApi.get,
   })
 
-  // 监控开关：后端 /config/monitor 以 jkstate 表达启用状态
-  const toggleMonitorMutation = useMutation({
-    mutationFn: (enabled: boolean) => monitorApi.update({ jkstate: enabled ? '1' : '0' }),
-    onSuccess: () => {
-      toast.success('监控开关已更新')
-      queryClient.invalidateQueries({ queryKey: ['monitor-status'] })
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : '监控开关更新失败')
-    },
-  })
-
-  // 根据最后心跳时间计算运行状态，超过 120 秒无心跳视为掉线
-  const lastHeartSec = monitorData?.lastheart ? parseInt(monitorData.lastheart, 10) : 0
-  const nowSec = Math.floor(Date.now() / 1000)
-  const isOnline = lastHeartSec > 0 && nowSec - lastHeartSec < 120
-  const monitorEnabled = monitorData?.jkstate === '1'
+  // 监控端状态以后端返回的 jkstate 为唯一事实来源：1=在线，0=掉线，-1/其他=未绑定或暂无心跳。
+  // 该值由后端心跳上报与生命周期任务（VMQ_MONITOR_HEARTBEAT_TIMEOUT，默认 180 秒）统一维护，
+  // 前端不再自行按时间计算，避免与后端下单门禁的判定阈值出现漂移。
+  const monitorState = monitorData?.jkstate
 
   let statusText = '未绑定或暂无心跳'
   let statusColor = 'text-amber-600 dark:text-amber-400'
   let statusBg = 'bg-amber-500/10 border-amber-500/20'
   let StatusIcon = AlertTriangle
 
-  if (lastHeartSec > 0) {
-    if (isOnline) {
-      statusText = '监控端运行正常 (已连接)'
-      statusColor = 'text-emerald-600 dark:text-emerald-400'
-      statusBg = 'bg-emerald-500/10 border-emerald-500/20'
-      StatusIcon = CheckCircle2
-    } else {
-      statusText = '监控端已掉线，请检查手机 App 是否存活'
-      statusColor = 'text-destructive'
-      statusBg = 'bg-destructive/10 border-destructive/20'
-      StatusIcon = XCircle
-    }
+  if (monitorState === '1') {
+    statusText = '监控端运行正常 (已连接)'
+    statusColor = 'text-emerald-600 dark:text-emerald-400'
+    statusBg = 'bg-emerald-500/10 border-emerald-500/20'
+    StatusIcon = CheckCircle2
+  } else if (monitorState === '0') {
+    statusText = '监控端已掉线，请检查手机 App 是否存活'
+    statusColor = 'text-destructive'
+    statusBg = 'bg-destructive/10 border-destructive/20'
+    StatusIcon = XCircle
   }
 
   /**
@@ -85,8 +66,8 @@ export const MonitorView: React.FC = () => {
     <div className="space-y-6">
       {/* 顶部三栏指标卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 监控端当前状态 */}
-        <Card className="p-5 flex items-center justify-between gap-4">
+        {/* 监控端当前状态：仅展示在线/离线，不提供开关操作 */}
+        <Card className="p-5 flex items-center gap-4">
           <div className="flex items-center gap-4">
             <div className={`p-3 rounded-2xl ${statusBg} ${statusColor} shrink-0`}>
               <StatusIcon className="size-5" />
@@ -98,13 +79,6 @@ export const MonitorView: React.FC = () => {
               </div>
             </div>
           </div>
-          {/* 监控总开关；关闭时后端将拒绝创建新订单 */}
-          <Switch
-            checked={monitorEnabled}
-            disabled={toggleMonitorMutation.isPending}
-            onCheckedChange={(checked) => toggleMonitorMutation.mutate(checked)}
-            aria-label="监控端总开关"
-          />
         </Card>
 
         {/* 最近一次心跳 */}

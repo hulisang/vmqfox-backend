@@ -157,6 +157,7 @@ export const qrcodeApi = {
 }
 
 // 监控端模块
+// jkstate 是监控端在线状态（-1=未绑定、0=已掉线、1=运行正常），由后端心跳与生命周期任务维护，并非总开关。
 export interface MonitorSettings {
   jkstate: string
   lastheart: string
@@ -168,6 +169,7 @@ export const monitorApi = {
     const res = await api.get<ApiResponse<MonitorSettings>>('/config/monitor')
     return res.data.data
   },
+  // 手动覆盖监控状态，仅为兼容旧客户端保留；界面状态展示一律以 get 返回的 jkstate 为准。
   update: async (data: { jkstate: string }) => {
     const res = await api.post<ApiResponse<void>>('/config/monitor', data)
     return res.data
