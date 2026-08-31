@@ -77,19 +77,24 @@ jobs:
           go vet ./...
           go test ./...
 
-      - name: Build Linux binaries
+      # 交叉编译四平台产物：linux 与 windows 各 amd64/arm64。
+      # 依赖均为纯 Go 实现（CGO_ENABLED=0），Windows 产物带 .exe 后缀。
+      - name: Build multi-platform binaries
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "dist/vmqfox-api-linux-$arch" ./cmd/vmqfox-api
+            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "dist/vmqfox-api-windows-$arch.exe" ./cmd/vmqfox-api
           done
           cp database/schema.sql env.example dist/
           tar -czf "vmqfox-backend-${{ inputs.tag_name }}.tar.gz" -C dist .
 
+      # overwrite_files 允许对同一 tag 重复发布时直接替换旧包（如修订 V3.0）
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name }}
+          overwrite_files: true
           files: vmqfox-backend-${{ inputs.tag_name }}.tar.gz
