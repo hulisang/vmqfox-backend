@@ -1,11 +1,21 @@
-name: Manual Build and Release
+name: Build and release Go backend
 
 on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: '为版本创建一个标签, 例如: v1.0.0'
+        description: "为版本创建一个标签，例如 v1.0.0"
         required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.26.5"
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.22.0"
+  GOFLAGS: "-mod=mod"
 
 jobs:
   build-and-release:
@@ -14,35 +24,72 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
         with:
-          php-version: '8.2' # 根据 composer.json 使用兼容的PHP版本
-          extensions: mbstring, zip, pdo, mysql
-          tools: composer:v2
+          version: ${{ env.PNPM_VERSION }}
 
-      - name: Cache Composer packages
-        id: composer-cache
-        uses: actions/cache@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          path: vendor
-          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-php-
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Install Dependencies
-        run: composer install --no-dev --no-interaction --prefer-dist
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-      # - name: Run Unit Tests
-      #   run: php think test
+      # 先构建前端：产物写入 internal/http/static/out，供后续 go:embed 使用。
+      # 发布包不允许依赖仓库忽略目录中的旧 static/out。
+      - name: Build embedded React frontend
+        shell: bash
+        working-directory: web
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm build
 
-      - name: Create Release Package
-        run: zip -r vmqfox-backend-release.zip . -x ".git/*" ".github/*" "*.zip"
+      - name: Verify embedded asset integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=internal/http/static/out
+          test -f "$out/index.html" || { echo "构建产物缺少 index.html"; exit 1; }
+          grep -oE '(src|href)="/assets/[^"]+"' "$out/index.html" \
+            | sed -E 's#^[a-z]+="/assets/(.*)"$#\1#' \
+            | sort -u > referenced-assets.txt
+          test -s referenced-assets.txt || { echo "index.html 未引用任何 assets 资源"; exit 1; }
+          while read -r asset; do
+            test -f "$out/assets/$asset" || { echo "index.html 引用的资源缺失: $asset"; exit 1; }
+            echo "已校验前端资源: $asset"
+          done < referenced-assets.txt
+          rm -f referenced-assets.txt
+
+      - name: Resolve Go modules
+        run: go mod download
+
+      - name: Static analysis and tests
+        run: |
+          set -euo pipefail
+          go vet ./...
+          go test ./...
+
+      - name: Build Linux binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "dist/vmqfox-api-linux-$arch" ./cmd/vmqfox-api
+          done
+          cp database/schema.sql env.example dist/
+          tar -czf "vmqfox-backend-${{ inputs.tag_name }}.tar.gz" -C dist .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: vmqfox-backend-release.zip
-          # 此工作流需要一个标签才能创建 Release。
-          # 手动触发时必须提供 tag_name。
-          tag_name: ${{ github.event.inputs.tag_name }} 
+          tag_name: ${{ inputs.tag_name }}
+          files: vmqfox-backend-${{ inputs.tag_name }}.tar.gz

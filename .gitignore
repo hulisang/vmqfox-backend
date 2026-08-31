@@ -1,6 +1,46 @@
+# IDE & 编辑器
 /.idea
 /.vscode
+*.swp
+*.swo
+*~
+.DS_Store
 
+# 日志与临时目录
 *.log
 /runtime
+/tmp
+
+# 环境变量与敏感配置
 .env
+.env.local
+.env.*.local
+.sanshu-memory/
+
+# Go 构建产物与二进制
+/vmqfox-api
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# 文档
+/docs
+
+# 前端 Web 依赖与构建临时文件
+web/node_modules/
+web/dist/
+web/.pnpm-store/
+web/tsconfig.tsbuildinfo
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 静态资源嵌入构建产物（通过 build 生成，由 .gitkeep 占位以支持 embed 编译）
+/internal/http/static/out/*
+!/internal/http/static/out/.gitkeep

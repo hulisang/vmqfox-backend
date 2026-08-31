@@ -1,0 +1,29 @@
+# Go-only 后端镜像上下文。历史 PHP 资源保留在仓库中作为协议参考，
+# 但不会进入镜像构建上下文。
+.git
+.github
+.sanshu-memory
+vendor
+.env
+*.log
+*.sql
+*.bak
+*.backup
+app
+config
+public
+route
+docker-compose.yml
+.travis.yml
+composer.json
+composer.lock
+composer.phar
+think
+
+# 前端依赖与本地构建产物：镜像内由 web-builder 阶段重新安装并构建，
+# 不允许把宿主机的 node_modules 或旧 static/out 带入构建上下文。
+web/node_modules
+web/dist
+web/.pnpm-store
+web/tsconfig.tsbuildinfo
+internal/http/static/out

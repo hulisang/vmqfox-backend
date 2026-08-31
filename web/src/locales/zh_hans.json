@@ -1,0 +1,40 @@
+{
+  "app": {
+    "title": "VMQFox 现代化免签支付系统",
+    "description": "轻量、安全、优雅的个人/小微商户收款管理方案"
+  },
+  "nav": {
+    "dashboard": "总览看板",
+    "orders": "订单管理",
+    "wechatQrcodes": "微信二维码",
+    "alipayQrcodes": "支付宝二维码",
+    "monitor": "监控端状态",
+    "settings": "系统设置",
+    "testOrder": "发起测试",
+    "apiDoc": "API 文档"
+  },
+  "auth": {
+    "login": "登 录",
+    "logout": "退出登录",
+    "username": "管理员账号",
+    "password": "管理员密码",
+    "loginSuccess": "登录成功，欢迎回来！",
+    "logoutSuccess": "已安全退出登录"
+  },
+  "common": {
+    "refresh": "刷新",
+    "save": "保存更改",
+    "cancel": "取消",
+    "confirm": "确定",
+    "delete": "删除",
+    "copy": "复制",
+    "copied": "已复制到剪贴板",
+    "loading": "加载中...",
+    "state": "状态",
+    "action": "操作",
+    "success": "操作成功",
+    "failed": "操作失败",
+    "enabled": "启用",
+    "disabled": "停用"
+  }
+}

@@ -1,540 +1,259 @@
-V免签  —— 个人开发者收款解决方案
-===============
+# V免签 (VMQFox) —— 单用户 Go 语言免签支付网关
 
-# VMQPHP - ThinkPHP 8 版本 (RESTful API)
+本项目是针对个人开发者的免签支付网关。现已完成**全面重构**，从原 ThinkPHP 8 版本彻底收敛为 **纯 Go 语言版本 (Go-only)**，移除了对 PHP、PHP-FPM、Composer 以及外部 Redis 的任何依赖。
 
-## 项目重构说明
-
-本项目已从 ThinkPHP 5.1 升级到 ThinkPHP 8.1.2，并完成了 **RESTful API 重构**，支持前后端分离架构。[前端地址](https://github.com/hulisang/vmqfox-frontend) [交流群](https://t.me/+8eGxEH18niljODg1)
-主要变更如下：
-
-### 主要变更
-
-1. **RESTful API 重构** ⭐
-   - 完整的 RESTful API 接口设计
-   - 支持前后端分离架构
-   - 统一的 API 响应格式
-   - 完善的路由组织结构 (`/api/*`)
-   - 兼容旧版 API，确保向后兼容
-
-2. **目录结构变更**
-   - `application/` → `app/`
-   - 新增 `app/controller/api/` API控制器目录
-   - 控制器需要继承 `think\Controller`
-   - 视图目录移至 `app/view/`
-
-3. **数据库操作变更**
-   - 使用 `think\facade\Db` 替代 `think\Db`
-   - 使用 `think\facade\Request` 替代 `input()` 函数
-   - 使用 `think\facade\Session` 替代 `think\facade\Session`
-
-4. **配置变更**
-   - 配置文件格式更新
-   - 路由配置移至 `route/app.php`
-   - 环境变量支持
-   - 新增 CORS 跨域支持
-
-5. **依赖更新**
-   - PHP 版本要求：>= 8.0.0
-   - ThinkPHP 版本：8.1.2
-   - QR码库：endroid/qr-code 4.x
-
-### 安装和运行
-
-#### 传统部署（单体应用）
-1. **安装依赖**
-   ```bash
-   composer install
-   ```
-
-2. **配置数据库**
-   - 复制 `.env.example` 中的配置到`.env` 并设置好数据库信息
-   - 创建数据库将根目录vmq.sql导入
-
-3. **运行项目**
-   ```bash
-   php think run
-   ```
-
-#### 前后端分离部署
-本项目支持前后端分离部署，详细说明请参考文档末尾的 **前后端分离部署说明** 章节。
-支持docker一键部署
-```bash
-https://github.com/hulisang/vmqfox-backend.git
-cd vmqfox-backend
-docker compose up -d
-```
-访问http://前端地址:3006管理后台，端口暴露3006:80可以自行修改docker-compose.yml，修改后端地址需要同步修改前端vite.config.ts文件第32行第37行端口
-
-### 主要功能
-
-- **RESTful API 接口** - 完整的 API 服务
-- **前后端分离支持** - 可独立部署前端和后端
-- 支付订单管理
-- 微信/支付宝二维码支付
-- 后台管理系统
-- 监控端通信接口
-- 跨域支持 (CORS)
-
-### 注意事项
-
-1. 确保 PHP 版本 >= 8.2.0
-2. 确保安装了必要的 PHP 扩展（curl, gd, pdo_mysql）
-3. 数据库需要创建相应的表结构
-4. 首次运行可能需要导入数据库结构
-
-### 重构完成
-
-项目已成功升级到 ThinkPHP 8 并完成 RESTful API 重构，支持前后端分离架构。保持了原有的功能特性，同时使用了最新的框架特性和安全更新。
+> [!IMPORTANT]
+> **关于数据兼容性**：本项目不迁移、不读取、亦不兼容旧版 PHP 服务端的数据结构。已运行的 Go-only 订单库升级到引入 `public_token` 的版本时，必须在新 API 对外启动前执行本文的公开令牌迁移命令。
 
 ---
 
-## 项目介绍
+## 🌟 项目特色与优势
 
-V免签(PHP) 是基于 ThinkPHP 8 + MySQL 实现的一套免签支付程序，采用 **RESTful API 架构**，支持前后端分离部署。主要包含以下特色：
+* **极速与低消耗**：纯 Go 编译为单可执行二进制文件，启动时间在毫秒级，运行时内存占用极低（通常低于 15MB）。
+* **安全加固与配置鉴权**：彻底修复原 PHP 版本敏感配置接口未鉴权导致的通讯密钥与密码泄露重大漏洞。所有管理与配置接口（`/api/config/*`）强制挂载无状态 JWT 鉴权中间件，密码采用 Bcrypt 单向哈希加密存储并全局强制输出脱敏，杜绝明文泄露风险。
+* **单用户无状态设计**：面向个人开发者，采用单管理员模型，抛弃了复杂的多租户和 RBAC 表；使用无状态 JWT 方案作为管理后台的鉴权基石。
+* **高可靠金额占锁（Price Lock）**：同一时间同类额度分配独立锁，并在 Pending 订单物理删除、超时关闭、或支付成功时自动级联释放，避免金额占死与重复占款。
+* **事务型消息通知（Outbox Pattern）**：保障订单支付与异步通知投递的强一致性。采用后台定时 Worker 驱动重试机制（指数退避），且首选新版 POST 规范化请求发送，支持历史 GET（Query 传参）形式的回退投递。
+* **双模式健康检查**：支持 `/health` 与 `/ready` 接口，分别反馈进程活跃度及后端数据库连接的健康情况，适合各种容器编排和反向代理监控。
 
- + **RESTful API 设计** - 标准化的 API 接口，支持前后端分离
- + **前后端分离架构** - 后端提供 API 服务，前端可独立部署
- + 收款即时到账，无需进入第三方账户，收款更安全
- + 提供示例代码简单接入
- + 超简单 API 使用，提供统一 API 实现收款回调
- + 免费、开源，无后门风险
- + 支持监听店员收款信息，可使用支付宝微信小号/模拟器挂机，方便IOS用户
- + 免root，免xp框架，不修改支付宝/微信客户端，防封更安全
- + **跨域支持** - 内置 CORS 中间件，支持跨域请求
- 
-> 如果您不熟悉PHP环境的配置，您可以使用Java版本的服务端（ https://github.com/szvone/Vmq ）
+---
 
-> 监控端的开源地址位于： https://github.com/szvone/VmqApk
+## ⚙️ 核心环境变量配置
 
-> V免签的运行环境为PHP版本>=8.0。
+系统通过读取环境变量进行配置，支持读取根目录 `.env` 文件。
 
-> V免签仅供个人开发者调试测试使用，请勿用于非法用途，商用请您申请官方商户接口
+| 环境变量名 | 默认值 | 描述 |
+| :--- | :--- | :--- |
+| `VMQ_SERVER_HOST` | `0.0.0.0` | API 服务监听网卡 IP |
+| `VMQ_SERVER_PORT` | `8080` | API 服务监听端口 |
+| `VMQ_SERVER_MODE` | `release` | Gin 框架运行模式 (`debug` / `release`) |
+| `VMQ_RUNTIME_MODE` | `writer` | 运行模式。`writer` 模式下会随服务启动后台定时轮询任务（过期处理、Outbox 推送） |
+| `VMQ_FRONTEND_URL` | *必填* | 买家可访问的最终公网 Origin，用于生成收银台链接。单服务同源部署时与对外访问地址一致，结尾不带 `/` |
+| `VMQ_TOKEN_SECRET` | *必填* | 至少 32 位的 JWT 签名密钥（离线生成随机值） |
+| `VMQ_TOKEN_ISSUER` | `vmqfox` | JWT Token 签发者名 |
+| `VMQ_TOKEN_TTL` | `24h` | JWT 凭据有效时长 |
+| `VMQ_DB_HOST` | `127.0.0.1` | MySQL/MariaDB 主机地址 |
+| `VMQ_DB_PORT` | `3306` | MySQL/MariaDB 端口 |
+| `VMQ_DB_USER` | `vmqgo` | 数据库用户名 |
+| `VMQ_DB_PASSWORD` | *必填* | 数据库密码 |
+| `VMQ_DB_NAME` | `vmqgo` | 数据库名 |
+| `VMQ_DB_CHARSET` | `utf8mb4` | 字符集 |
+| `VMQ_LIFECYCLE_POLL_INTERVAL`| `10s` | 订单超时关闭扫描周期 |
+| `VMQ_NOTIFICATION_POLL_INTERVAL`| `2s` | Outbox 推送通知扫描周期 |
+| `VMQ_ALLOWED_ORIGIN` | 空 | 允许跨域访问 API 的精确 Origin 列表（逗号分隔）。留空表示**拒绝所有跨域请求**；同源部署无需配置，且不接受通配符 `*` |
+| `VMQ_MONITOR_HEARTBEAT_TIMEOUT` | `3m` | 超过该时长未收到心跳即判定挂机端离线 |
+| `VMQ_MONITOR_SIGN_TTL` | `5m` | 挂机端心跳/推送签名时间戳的双向允许偏移窗口，超窗按重放拒绝 |
+| `VMQ_RATE_LOGIN_LIMIT` / `VMQ_RATE_LOGIN_WINDOW` | `10` / `1m` | 登录端点的每客户端固定窗口额度 |
+| `VMQ_RATE_CREATE_LIMIT` / `VMQ_RATE_CREATE_WINDOW` | `30` / `1m` | 建单端点的每客户端固定窗口额度 |
+| `VMQ_RATE_PUBLIC_READ_LIMIT` / `VMQ_RATE_PUBLIC_READ_WINDOW` | `60` / `1m` | 公开查询、状态和回跳端点的每 IP 固定窗口额度 |
+| `VMQ_RATE_PUBLIC_TOKEN_LIMIT` / `VMQ_RATE_PUBLIC_TOKEN_WINDOW` | `60` / `1m` | 同一公开令牌的独立固定窗口额度 |
+| `VMQ_RATE_QRCODE_LIMIT` / `VMQ_RATE_QRCODE_WINDOW` | `30` / `1m` | 二维码生成端点的每客户端固定窗口额度 |
+| `VMQ_RATE_MONITOR_HEART_LIMIT` / `VMQ_RATE_MONITOR_HEART_WINDOW` | `120` / `1m` | 挂机端心跳的每客户端固定窗口额度 |
+| `VMQ_RATE_MONITOR_PUSH_LIMIT` / `VMQ_RATE_MONITOR_PUSH_WINDOW` | `60` / `1m` | 挂机端推送的每客户端固定窗口额度 |
+| `VMQ_TRUSTED_PROXY_CIDR` | 空 | 真实反向代理的 IP/CIDR 列表。留空时仅以 TCP 对端识别客户端，绝不信任自带的转发头；置于反向代理之后时必须填写实际代理网段，否则所有客户端会按代理地址共用限流桶 |
+| `VMQ_NOTIFY_ALLOW_CIDR` | 空 | 出站 Webhook 的内网 IP/CIDR 精确白名单，留空表示禁止一切私网与回环目标 |
+| `VMQ_NOTIFY_ALLOW_HTTP` | `false` | 出站 Webhook 默认只允许 `https`。设为 `true` 才接受明文 `http`，属于尚未关闭的安全门槛 |
+| `VMQ_HTTP_PORT` | `8000` | Compose 对外暴露的宿主端口，映射到容器内 Go 服务的 8080 |
 
-> bug反馈请建立issues
+---
 
+## 🚀 极速部署与运行
 
-## 前言
+### 0. 前端资源构建（必做，Go 二进制会嵌入这份产物）
 
-## 原理
-+ 用户扫码付款 -> 收到款项后手机通知栏会有提醒 -> V免签监控端监听到提醒，推送至服务端->服务端根据金额判断是哪笔订单
+管理台与收银台前端源码位于 `web/`（React + Vite）。构建产物写入 `internal/http/static/out`，
+由 `go:embed` 嵌入二进制，因此**必须先构建前端再编译 Go**，否则根路径没有页面可提供。
 
-## 安装
- + 推荐使用宝塔面板安装，以下教程为宝塔面板安装教程，其他环境请参考自行配置
+```bash
+cd web
+pnpm install --frozen-lockfile
+pnpm build
+cd ..
+```
 
-    1、下载源代码,Clone or download->Download ZIP
-    
-    2、宝塔面板中新建网站，设置：
-        
-        + 网站目录->运行目录 设置为public并保存
-        + 伪静态 设置为thinkphp并保存
-        + 默认文档 设置将index.html放在第一行并保存
-    
-    3、打开网站目录 config/database.php ，设置好您的mysql账号密码。
-    
-    4、导入数据库文件（位于根目录）vmq.sql到您的数据库。
-    
-    5、至此网站搭建完毕，请访问后自行修改配置信息！默认后台账号和密码均为admin
+仓库不提交构建产物，`internal/http/static/out` 只保留 `.gitkeep` 占位。
+使用 Docker 或 CI 时无需手动执行本步骤：镜像的 `web-builder` 阶段与发布工作流都会从源码重新构建并校验资源完整性。
 
+### 1. 本地直接编译运行
+确保您已配置 Go 1.26.5 或更高环境。
 
- > 升级说明：请您直接下载新版本覆盖旧版本即可！
- 
- 
-## API 调用
+```bash
+# 编译可执行程序（前提：已完成上一步的前端构建）
+go build -o vmqfox-api ./cmd/vmqfox-api
 
-### RESTful API 接口
+# 启动 Web 服务 (请确保已通过命令行或 .env 注入上述环境变量)
+./vmqfox-api
+```
 
-本项目提供完整的 RESTful API 接口，支持以下功能：
+服务启动后，`/` 提供嵌入的前端页面，`/assets/*` 提供静态资源，`/api/*` 提供接口，三者同源。
 
-**认证 API**
-- `POST /api/auth/login` - 管理员登录
-- `POST /api/auth/logout` - 退出登录
-- `GET /api/user/info` - 获取用户信息
+### 2. 数据库结构初始化
+项目运行时**不会**自动执行建表操作。
+使用宿主机或容器客户端，在您的空数据库实例（如 `vmqgo`）中导入 `/database/schema.sql` 完成七张核心数据表的初始化：
+```bash
+# 使用客户端导入 schema 基线
+mysql -h 127.0.0.1 -u vmqgo -p vmqgo < database/schema.sql
+```
 
-**订单 API**
-- `GET /api/order/list` - 获取订单列表
-- `POST /api/order/create` - 创建订单
-- `GET /api/order/detail/:id` - 获取订单详情
-- `POST /api/order/close/:id` - 关闭订单
+### 3. 公开订单令牌迁移（升级已有 Go-only 订单库时必做）
 
-**二维码 API**
-- `GET /api/qrcode/list` - 获取二维码列表
-- `POST /api/qrcode/add` - 添加二维码
-- `DELETE /api/qrcode/:id` - 删除二维码
+新版本以 64 位小写十六进制的 `publicToken` 作为匿名收银台凭据，并立即停用旧 `orderId` 公开链接。迁移命令会安全地添加 `orders.public_token`、分批回填随机令牌、创建唯一索引并设置非空约束；重复执行不会改写已有效的令牌。
 
-**系统配置 API**
-- `GET /api/config/get` - 获取系统配置
-- `POST /api/config/save` - 保存系统配置
+> [!WARNING]
+> 先在维护窗口运行迁移并确认成功，再同时发布后端与前端。旧订单号支付链接会失效，不能作为新版本的兼容入口。
 
-**监控 API**
-- `POST /api/monitor/heart` - 监控端心跳
-- `POST /api/monitor/push` - 监控端推送通知
+```bash
+# 已构建二进制：读取 .env 后执行可重复迁移
+./vmqfox-api -migrate-public-tokens
 
-### 传统调用方式
+# Docker Compose：保持 MySQL 已启动，但在新 API 对外启动前运行一次性迁移容器
+# docker compose up -d mysql
+# docker compose run --rm --no-deps vmqfox-api /usr/local/bin/vmqfox-api -migrate-public-tokens
+```
 
- + 请部署完成后访问后台，有详细的Api说明
- + 兼容旧版 API 接口，确保向后兼容
- 
- 
-## 注意
+迁移完成后核验 `orders.public_token` 均为非空、唯一的 64 位小写十六进制值，再启动或更新 API 与前端服务。
 
-  + 本系统原理为监控收款后手机的通知栏推送消息，所以请保持微信/支付宝/V免签监控端后台正常运行，且添加到内存清理白名单！
+### 4. 一键初始化 / 重置管理员账户
 
-  + v免签面向用户是个人开发者，如果您不懂如何开发网站，那么v免签不适合您的使用！
-  
-  + v免签的原理是监控手机收到收款后的通知栏推送信息，所以不适合于商用多用户的情况，如果您想用于商用，请二次开发！
-  
-  + v免签是免费开源产品，所有程序均开放源代码，所以不会有收费计划，因此作者不可能教会每个人部署安装，请参考文档多百度谷歌，v免签使用具有一定的技术门槛，请见谅！
-  
-  + v免签的监控端并不适配所有手机，遇到手机无法正常使用的时候，请您更换手机或使用模拟器挂机！
-  
-  + v免签拥有双语言服务端，当您使用php版本服务端遇到问题的时候，请您尝试使用java版本服务端，php版本服务端配置略复杂，需要配置伪静态规则，请知悉！
+> [!TIP]
+> 系统支持交互式终端安全输入（输入密码时不回显且支持二次确认校验），也可配合命令行参数实现自动化配置。
 
-  + 正常的安装步骤简略如下
-    + 下载服务端部署(GitHub中下载的为最新版)
-    + 登录网站后台更改系统设置
-    + 打开网站后台监控端设置
-    + 下载监控端
-    + 安装监控端后使用手动配置或扫码配置
-    + 监控端中点击开启服务跳转到辅助功能中开启服务
-    + 开启服务后返回v免签点击检测监听权限
-    + 如果显示监听权限正常，至此安装完毕，如果只收到通知栏推送的测试通知，则系统不兼容无法正常监听
-    + 如果显示监听权限正常，还是无法正常运行，那么请确定微信是否关注 "微信支付" 和 "微信收款助手" 这两个公众号
-  
-  + 手机设置步骤（教程为MIUI系统，非MIUI系统请参考教程进行设置）
-    + 关闭系统神隐模式
-       
-        （旧版MIUI系统）在系统【设置】 - 【其他高级设置】 - 【电量与性能】 - 【神隐模式】 - 【V免签监控端】设置为关闭
-        
-        （新版MIUI系统）在系统【设置】 - 【其他高级设置】 - 【电量与性能】 - 【省电优化】 - 【应用智能省电】，将V免签监控端、微信、支付宝的3个APP全都改为无限制
-    
-    + 添加内存清理白名单
-    
-    + 关闭WIFI优化
-    
-        （旧版MIUI系统）在系统【设置】 - 【WLAN】 -【高级设置】 -【WLAN优化】，关闭它。
-    
-        （新版MIUI系统）在系统【设置】 - 【WLAN】 -【高级设置】 - 【在休眠状态下保持WLAN网络连接】改为"始终"
-   
-    + 开启推送通知
-    
-        系统【设置】 - 【通知和状态栏】 - 【通知管理】中，找到这3个App，把里面的开关全部打开
-        
-    + 在微信的【设置】 - 【勿扰模式】中，关闭勿扰模式
-    
-    + 在微信的公众号，关注 【微信收款助手】 这个公众号
-    
-    + 在支付宝的主页，上方搜索框 搜索 【支付助手】 ，进入支付助手，右上角小齿轮，打开【接收付款消息提醒】
+#### 方式 A：一键交互式初始化（推荐）
+在配置好 `.env` 且数据库已启动的情况下，直接运行：
+```bash
+# 本地直接运行
+./vmqfox-api -init-admin
 
+# 或在 Docker Compose 环境下执行
+docker compose exec vmqfox-api ./vmqfox-api -init-admin
+```
+按照终端交互提示输入用户名与密码即可完成一键校验、Bcrypt 哈希加密并直接入库。
 
-    
-  + v免签支持的通知有：
-    + 支付宝个人收款的推送通知
-    + 支付宝商家二维码的收款推送通知
-    + 支付宝店员通绑定的店员账号收款的推送通知
-    + 微信二维码收款推送通知
-    + 微信店员收款推送通知
-           
-## 更新记录
-  + v2.0（2025.07.11）
-    + **RESTful API 重构** - 完整的 API 接口设计
-    + **前后端分离支持** - 支持独立部署前端和后端
-    + 新增 CORS 跨域支持
-    + 新增专用 API 控制器
-    + 完善的路由组织结构
-    + 兼容旧版 API 接口
+#### 方式 B：脚本/自动化非交互式初始化
+适用于 CI/CD 自动化或 Docker 初始化脚本：
+```bash
+# 方式 1：通过参数直接传入
+./vmqfox-api -init-admin -username admin -password 'YourSecurePassword123' -force
 
-  + v1.14（2025.07.03）
-    + ThinkPHP 框架升级到 8.1.2
- 
- + v1.12（2020.01.30）
-    + 增加一些提示信息   
-   
- + v1.11（2019.10.28）
-    + 修复上传二维码一直卡在处理中
-    + 如二维码无法正常识别，请给/public/qr-code/test.php设置777权限
-        
- + v1.10.1（2019.09.16）
-    + 增加版本更新提示
-    
- + v1.10（2019.09.15）
-    + 调整二维码识别方案，提升二维码识别率
-    + 增加第一次安装时，系统自动生成通讯密钥的功能
-   
- + v1.9.1（2019.09.15）
-    + 二维码识别出错增加解决方法：在其他网站（草料二维码识别）识别二维码内容后，将内容重新生成成二维码图片上传。
-    
- + v1.9（2019.09.11）
-    + 修复一些已知的BUG
-    + 因为很多人的服务器时间不准确，因此删除时间校验，不会出现客户端时间错误了
-    + 增加主页服务器基本配置的显示列表
-    
- + v1.8.1（2019.05.22）
-    + 增加详细的手机端设置教程
-    + 同步最新版监控端App
-    
- + v1.8（2019.05.16）
-    + 更新监控端APP到1.6版本，理论支持更多手机
-    + 尝试修复偶然情况下锁定金额无法被释放的问题
-    
- + v1.7.2（2019.05.12）
-    + 修复当通知地址带有GET参数的时候，无法正常通知的问题
-    
- + v1.7.1（2019.05.07）
-    + 修复上个版本更新后订单金额异常的问题
+# 方式 2：通过标准输入管道传入密码
+printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin -force
+```
 
- + v1.7（2019.05.06）
-    + 修复部分情况下无法自动释放被锁定金额的情况（本版本数据库有变动，旧版升级请覆盖文件后，将tmp_price表中增加一列，字段名为oid，类型varchar(255),如果您不会增加，请删除原有数据库并重新导入vmq.sql）
+*(可选)* 若仍需纯离线生成 Bcrypt 哈希，可继续使用 `./vmqfox-api -hash-password`。
 
- + v1.6.2（2019.04.30）
-    + 修复部分情况下出现订单已过期，但是页面还在倒计时的问题
-
- + v1.6.1（2019.04.26）
-    + 再次优化二维码识别，使用js解析二维码，如果失败，则使用PHP解析
-    
- + v1.6（2019.04.25）
-    + 优化二维码识别，使用js解析二维码，解决部分二维码识别返回false问题 
-    
- + v1.5（2019.04.24）
-    + 同步最新版APP
-    + 添加注意事项说明，完善README.md文档
-
- + v1.4.1（2019.04.22）
-    + 修复删除未支付状态的订单时不自动释放锁定金额的问题
-    + 修复创建订单时返回的二维码与支付方式不符合的问题
-
- + v1.4（2019.04.21）
-    + 修复订单过期不自动释放锁定金额的问题
-    + 修复订单超出负荷问题
-      
- + v1.3（2019.04.20）
-    + 删除数据库文件中的默认系统设置，防止误导用户
-    + 更新监控App到v1.3版本，趋于稳定，可以正常使用
-      
- + v1.2（2019.04.19）
-    + 整理代码，重新优化APP兼容性
-    + 添加店员到账支持，添加后可以实现安卓备用机/模拟器 挂小号取收款通知，方便IOS用户，
-       + 微信绑定店员方式=>微信->收付款->二维码收款->收款小账本->添加店员接收通知
-       + 支付宝绑定店员方式=>我的->商家服务->店员通->立即添加
-    + 服务端修复一堆BUG，建议更新到此版本
-   
- + v1.1.1（2019.04.19） 
-   + 修复后台点击补单，补单成功订单未设置成成功状态
-   + 修复后台首页金额统计保留两位小数
-   + 修复修改系统设置引发的监控端状态重置问题
-   + 新增创建订单API接口增加notifyUrl和returnUrl参数，可以在创建订单的时候设置回调接口
-   
- + v1.1（2019.04.18） 
-   + 打包thinkphp框架上传
-   
- + v1.0（2019.04.18） 
-   + PHP初版发布
-
-## 版本预告
-
-+ 待v免签测试稳定后，将会着手开发对接v免签的发卡平台，也是开源免费，敬请期待！
-
-## 版权信息
-
-V免签遵循 MIT License 开源协议发布，并提供免费使用，请勿用于非法用途。
-
-
-版权所有Copyright © 2019 by vone (http://szvone.cn)
-
-All rights reserved。
-
-## 前后端分离部署说明
-
-本项目已完成前后端分离改造，使用ThinkPHP 8作为后端API服务，vmqfox-frontend作为前端UI界面。以下是部署说明：
-
-### 后端部署（ThinkPHP 8）
-
-1. **安装依赖**
+### 5. 使用 Docker Compose 一键启动
+根目录下提供了直接可用的部署骨架：
+1. 拷贝 `env.example` 到 `.env` 并填写其中的参数（数据库密码、Token 签名密钥、`VMQ_FRONTEND_URL` 等）。
+2. 执行启动指令：
    ```bash
-   cd vmqfox-backend
-   composer install
+   docker compose up -d --build
    ```
+3. Compose 只启动两个服务：`vmqfox-api`（内含嵌入式前端）与 `mysql`。
+   镜像构建时会先安装锁定依赖构建 React 资源、校验 `index.html` 引用的每个文件都存在，再编译并嵌入 Go 二进制。
+4. 访问 `http://<主机>:${VMQ_HTTP_PORT:-8000}` 即为唯一生产入口：管理台、收银台与 API 全部由该服务提供。
 
-2. **配置数据库**
-   - 复制 `.env.example` 中的配置到 `.env` 并设置好数据库信息
-   - 创建数据库将根目录vmq.sql导入
+> [!NOTE]
+> 若需在前面独立终止 TLS，可参考 `docker/nginx/default.conf`：它只做纯转发，不注入任何 CORS 头，
+> 安全响应头与 CSP 由 Go 的 `SecurityHeaders` 中间件统一下发。反代必须透传 `X-Forwarded-Proto`，
+> 服务据此决定是否下发 HSTS，同时需在 `VMQ_TRUSTED_PROXY_CIDR` 中登记该代理网段。
 
-3. **配置Nginx**
+---
 
-   **完整Nginx配置文件** (`/etc/nginx/sites-available/vmqfox-backend`):
-   ```nginx
-   server {
-       listen 8000;
-       server_name 127.0.0.1;  # 根据实际情况修改
-       index index.php index.html index.htm default.php default.htm default.html;
+## 🔗 HTTP 接口契约清单
 
-       # 日志配置
-       access_log /var/log/nginx/vmq-backend-access.log;
-       error_log /var/log/nginx/vmq-backend-error.log;
+### 1. 健康与就绪检查 (不需鉴权)
+* `GET /health`：进程存活检查，返回 `healthy`。
+* `GET /ready`：数据库健康度状态，数据库畅通返回 `ready`。
 
-       # 项目根目录
-       root /path/to/vmqfox-backend/public;  # 修改为实际路径
+### 2. 在线管理 API (均需 Authorization: Bearer <JWT>)
+* **登录认证**：
+  * `POST /api/auth/login` - 用户名/密码登录并换取 Token。
+  * `POST /api/auth/logout` - 清除本地缓存 Token 退出。
+* **管理员与菜单**：
+  * `GET /api/user/info` - 返回单管理员用户名及仪表盘权限集。
+  * `GET /api/user/list` - 返回包含该管理员的单用户列表。
+  * `GET /api/menu` - 静态 Layui 后台菜单结构定义。
+* **订单管理**：
+  * `GET /api/order/list` - 分页查询历史订单.
+  * `GET /api/order/detail/:id` - 订单详情.
+  * `POST /api/order/close/:id` - 管理员手动关闭未付款 Pending 订单（自动释锁）。
+  * `DELETE /api/order/:id` - 物理删除特定订单（Pending 状态将级联释锁）。
+  * `POST /api/order/expired` - 批量手动触发关闭已超时的 Pending 订单。
+  * `DELETE /api/order/expired` - **删除过期订单**：物理批量删除所有超时未付/已关闭的订单（Pending 级联释锁）。
+  * `DELETE /api/order/last` - 物理清理历史归档旧订单（24小时前）。
+  * `POST /api/order/reissue/:id` - **人工补单**：事务内强制改变订单为已支付、释放金额锁并向 Outbox 压入重签通知。
+* **系统配置**：
+  * `GET /api/config/settings` - 获取系统收款配置、有效期、区分额度方式等。
+  * `POST /api/config/settings` (及别名 `POST /api/config/save`) - 保存/更新系统全局配置与管理员密码。
+  * `GET /api/config/monitor` - 读取当前系统配置的监控心跳状态。
+  * `POST /api/config/monitor` - 手动覆盖监控状态参数 `jkstate`（该值是监控端在线状态而非总开关，手动写入会在下次心跳或生命周期任务时被自动纠正，仅为兼容旧客户端保留）。
 
-       # CORS 配置
-       add_header 'Access-Control-Allow-Origin' 'http://前端地址:端口' always;
-       add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-       add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
-       add_header 'Access-Control-Allow-Credentials' 'true' always;
+### 3. 公共支付网关与监控协议
 
-       # 引入伪静态规则
-       include /path/to/vmqfox-backend/nginx-rewrite.conf;  # 伪静态规则文件
+建单与监控端请求需商户 v2 HMAC-SHA-256 验签；匿名收银台读取请求使用 `publicToken` 作为持有式凭据。
+* **前端与静态资源**：
+  * `GET /`、`GET /index.html` - 返回嵌入的前端页面（hash 路由），响应 `Cache-Control: no-cache`。
+  * `GET /assets/*` - 带内容哈希的静态资源，响应 `Cache-Control: public, max-age=31536000, immutable`。
+* **网关链路**：
+  * `POST /api/order/create` - 传入商户单号、金额、类型，验签后自动匹配二维码，占用价格锁；响应中的 `publicToken` 是唯一的匿名收银台凭据。
+  * `GET /api/order/get/:publicToken` - 获取前台收银台支付展示参数；只接受 64 位随机公开令牌，响应不包含内部订单号、回调地址或透传参数。
+  * `GET /api/order/check/:publicToken` - 轮询订单状态；只返回状态和剩余时间，不下发回跳地址。
+  * `GET /api/order/return-url/:publicToken` - 订单支付成功后才返回服务端生成并签名的回跳地址。
+  * `GET /api/qrcode/generate` - 将收款支付链接极速生成为 PNG 图像输出 (`image/png`)。
+  * 公开 `get`、`check`、`return-url` 路径不兼容旧 `orderId`；无效格式与不存在的令牌均返回一致的“订单不存在”业务响应。
+* **安卓监控端交互**：
+  * `ANY /api/monitor/heart` - 挂机 App 心跳同步，更新 `lastHeart` 时间。
+  * `ANY /api/monitor/push` - 挂机 App 匹配通知栏到账信息推送至服务端，自动完成订单核销、释放价格锁并压入 Outbox 异步回调商户。
 
-       # PHP处理
-       location ~ [^/]\.php(/|$) {
-           fastcgi_pass 127.0.0.1:9000;  # 或 unix:/var/run/php/php8.0-fpm.sock
-           fastcgi_index index.php;
-           include fastcgi_params;
-           set $real_script_name $fastcgi_script_name;
-           if ($fastcgi_script_name ~ "^(.+?\.php)(/.+)$") {
-               set $real_script_name $1;
-               set $path_info $2;
-           }
-           fastcgi_param SCRIPT_FILENAME $document_root$real_script_name;
-           fastcgi_param SCRIPT_NAME $real_script_name;
-           fastcgi_param PATH_INFO $path_info;
-       }
+### 4. 安全响应头与跨域策略
 
-       # 禁止访问敏感文件
-       location ~ ^/(\.user.ini|\.htaccess|\.git|\.env|\.svn|\.project|LICENSE|README.md) {
-           return 404;
-       }
-   }
-   ```
+所有响应由 `SecurityHeaders` 中间件统一附加 `X-Content-Type-Options`、`Referrer-Policy`、
+`X-Frame-Options`、`Cross-Origin-Opener-Policy` 与 CSP。CSP 的 `script-src` 仅允许同源脚本与携带
+本次请求 nonce 的内联脚本，因此前端入口不含无 nonce 的内联 `<script>`；`isHtml=1` 的支付跳转页
+会自动注入该 nonce。只有请求确实经由 HTTPS 到达时才下发 HSTS，避免强制升级中断仍走 HTTP 的挂机端。
 
-   **伪静态规则文件** (`nginx-rewrite.conf`):
-   ```nginx
-   location / {
-       # 处理OPTIONS预检请求
-       if ($request_method = "OPTIONS") {
-           add_header 'Access-Control-Allow-Origin' 'http://前端地址:端口' always;
-           add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-           add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
-           add_header 'Access-Control-Allow-Credentials' 'true' always;
-           add_header 'Content-Length' 0;
-           add_header 'Content-Type' 'text/plain';
-           return 204;
-       }
-       # ThinkPHP伪静态规则
-       if (!-e $request_filename) {
-           rewrite ^(.*)$ /index.php?s=/$1 last;
-       }
-   }
+跨域遵循默认拒绝：`VMQ_ALLOWED_ORIGIN` 留空时不下发任何 `Access-Control-Allow-Origin`，
+配置值中的 `*` 会被忽略，命中白名单时才回显请求 Origin 并附加 `Vary: Origin`。
 
-   # API路由处理
-   location ~ ^/api/ {
-       if ($request_method = "OPTIONS") {
-           add_header 'Access-Control-Allow-Origin' 'http://前端地址:端口' always;
-           add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-           add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
-           add_header 'Access-Control-Allow-Credentials' 'true' always;
-           add_header 'Content-Length' 0;
-           add_header 'Content-Type' 'text/plain';
-           return 204;
-       }
-       if (!-e $request_filename) {
-           rewrite ^(.*)$ /index.php?s=/$1 last;
-       }
-   }
+### 5. 签名协议 v2（HMAC-SHA-256）
 
-   # 兼容旧版API
-   location ~ ^/(appHeart|appPush|createOrder|checkOrder|getOrder) {
-       if ($request_method = "OPTIONS") {
-           add_header 'Access-Control-Allow-Origin' 'http://前端地址:端口' always;
-           add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-           add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, X-Requested-With' always;
-           add_header 'Access-Control-Allow-Credentials' 'true' always;
-           add_header 'Content-Length' 0;
-           add_header 'Content-Type' 'text/plain';
-           return 204;
-       }
-       if (!-e $request_filename) {
-           rewrite ^(.*)$ /index.php?s=/$1 last;
-       }
-   }
+通讯密钥作为 HMAC 密钥参与运算，不再拼接进签名明文；结果取 64 位小写 hex，服务端以常量时间比较。
+v1 的 MD5 签名已停止受理，仅保留用于识别未升级的旧 SDK 并给出明确报错。
 
-   # 二维码访问
-   location /qrcode/ {
-       alias /path/to/vmqfox-backend/runtime/qrcode/;  # 修改为实际路径
-       expires 1d;
-   }
+| 场景 | 待签 canonical 串 |
+| :--- | :--- |
+| 建单 | `payId=<商户单号>&param=<param>&type=<1\|2>&price=<两位小数>&notifyUrl=<notifyUrl>&returnUrl=<returnUrl>` |
+| 回调 | `payId=<商户单号>&param=<param>&type=<1\|2>&price=<两位小数>&reallyPrice=<两位小数>` |
+| 心跳 | `t=<毫秒时间戳>` |
+| 推送 | `type=<1\|2>&price=<两位小数>&t=<毫秒时间戳>` |
 
-   # 禁止访问敏感目录
-   location ~ ^/(app|config|vendor|runtime)/ {
-       deny all;
-   }
+约束：
 
-   location ~ /\.(env|git) {
-       deny all;
-   }
-   ```
+* 金额一律定标为两位小数，且签名串与请求参数必须使用同一份文本。
+* `notifyUrl` / `returnUrl` 未传时以空串参与签名，且只接受 `http(s)` 协议。
+* 心跳与推送的 `t` 为毫秒 epoch，偏移超出 `VMQ_MONITOR_SIGN_TTL` 即按重放拒绝。
+* 三端（Go 服务端、PHP 商户插件 `vmqfox_plugin.php`、安卓挂机端 `MonitorSign.java`）共用同一组黄金向量，
+  固化在 `internal/domain/payment/payment_test.go`；前端联调页 `testOrder` 会在界面上自检浏览器端实现是否与该组向量一致。
+* 独立复算方式：
 
-5. **部署步骤**
-   ```bash
-   # 1. 复制配置文件到服务器
-   sudo cp nginx.conf /etc/nginx/sites-available/vmq-backend
-   sudo cp nginx-rewrite.conf /path/to/vmqfox-backend/
+```bash
+printf '%s' 't=1773500000000' | openssl dgst -sha256 -hmac 'testkey123456' -hex
+```
 
-   # 2. 修改配置文件中的路径
-   sudo nano /etc/nginx/sites-available/vmq-backend
-   sudo nano /path/to/vmqfox-backend/nginx-rewrite.conf
+---
 
-   # 3. 启用站点
-   sudo ln -s /etc/nginx/sites-available/vmq-backend /etc/nginx/sites-enabled/
+## 📝 开发者备注
 
-   # 4. 测试配置
-   sudo nginx -t
+修改代码后建议按以下顺序自检；本仓库没有额外的集成脚本，质量门禁与发布工作流保持一致：
 
-   # 5. 重载Nginx
-   sudo systemctl reload nginx
+```bash
+# 前端类型检查与构建（同时刷新嵌入资源）
+cd web && pnpm build && cd ..
 
-   # 6. 设置目录权限
-   sudo chown -R www-data:www-data /path/to/vmqfox-backend
-   sudo chmod -R 755 /path/to/vmqfox-backend
-   sudo chmod -R 777 /path/to/vmqfox-backend/runtime
-   ```
+# 后端静态检查与测试
+go vet ./...
+go test ./...
 
-### API文档
-
-RESTful API接口说明：
-
-1. **认证API**
-   ```
-   POST /api/auth/login - 管理员登录
-   POST /api/auth/logout - 退出登录
-   GET /api/user/info - 获取用户信息
-   ```
-
-2. **订单API**
-   ```
-   GET /api/order/list - 获取订单列表
-   POST /api/order/create - 创建订单
-   GET /api/order/detail/:id - 获取订单详情
-   POST /api/order/close/:id - 关闭订单
-   ```
-
-3. **二维码API**
-   ```
-   GET /api/qrcode/list - 获取二维码列表
-   POST /api/qrcode/add - 添加二维码
-   POST /api/qrcode/delete/:id - 删除二维码
-   POST /api/qrcode/parse - 解析二维码图片
-   ```
-
-4. **系统配置API**
-   ```
-   GET /api/config/get - 获取系统配置
-   POST /api/config/save - 保存系统配置
-   GET /api/config/status - 获取系统状态
-   ```
-
-5. **监控API**
-   ```
-   POST /api/monitor/heart - 监控端心跳
-   POST /api/monitor/push - 监控端推送通知
-   ```
-
+# 完整镜像构建（含前端构建与资源完整性校验）
+docker compose build vmqfox-api
+```
