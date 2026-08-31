@@ -89,13 +89,15 @@ go build -o vmqfox-api ./cmd/vmqfox-api
 
 服务启动后，`/` 提供嵌入的前端页面，`/assets/*` 提供静态资源，`/api/*` 提供接口，三者同源。
 
-### 2. 数据库结构初始化
-项目运行时**不会**自动执行建表操作。
-使用宿主机或容器客户端，在您的空数据库实例（如 `vmqgo`）中导入 `/database/schema.sql` 完成七张核心数据表的初始化：
+### 2. 数据库结构初始化（无需导入 SQL）
+一条命令即可完成建表与管理员初始化：`./vmqfox-api -init-admin` 检测到库表不存在时会**自动创建全部数据表**，无需再手工导入 `database/schema.sql`（该文件仅供审阅表结构或 DBA 特殊场景手工建库用）。
+
 ```bash
-# 使用客户端导入 schema 基线
-mysql -h 127.0.0.1 -u vmqgo -p vmqgo < database/schema.sql
+# 自动建表 + 引导设置管理员账号密码（密码不回显）
+./vmqfox-api -init-admin
 ```
+
+只想单独建表、暂不创建管理员时运行 `./vmqfox-api -init-db`。注意服务进程本身启动时不会自动建表，请先完成初始化再启动（详见下文第 4 节）。
 
 ### 3. 公开订单令牌迁移（升级已有 Go-only 订单库时必做）
 

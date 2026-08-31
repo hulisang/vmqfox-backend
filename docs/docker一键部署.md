@@ -48,16 +48,17 @@ docker compose up -d --build
 
 镜像的 `web-builder` 阶段会从 `web/` 源码重新构建 React 前端并校验资源完整性，再编译嵌入 Go 二进制——镜像内嵌的一定是本次提交的产物。
 
-### 3. 初始化数据库与管理者
+### 3. 初始化数据库与管理者（无需导入 SQL）
+
+一条命令即可完成建表与管理员初始化：`-init-admin` 检测到库表不存在时会**自动创建全部数据表**，无需再手工导入 `database/schema.sql`。
 
 ```bash
-# 建表（API 运行时不会自动建表）
-docker compose exec mysql mysql -u root -p vmq < /dev/stdin < database/schema.sql
-# 若 schema 未挂载进容器，可先用 docker compose cp 拷入再导入
-
-# 初始化管理员（交互式，密码不回显）
+# 交互式，密码不回显；自动建表 + 设置管理员一步完成
 docker compose exec vmqfox-api ./vmqfox-api -init-admin
 ```
+
+> [!NOTE]
+> 服务进程本身启动时不会自动建表，请先完成初始化再对外放流。`database/schema.sql` 仅作为表结构参考或 DBA 特殊场景手工建库用；只想单独建表可运行 `docker compose exec vmqfox-api ./vmqfox-api -init-db`。
 
 ### 4. 访问
 
