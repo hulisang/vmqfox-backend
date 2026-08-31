@@ -1,4 +1,4 @@
-> 本页为 [项目 Wiki](https://github.com/hulisang/vmqfox-backend/wiki) 的离线副本（同步于 2026-08-31），在线版以 Wiki 为准。
+> 本页为 [项目 Wiki](https://github.com/hulisang/vmqfox-backend/wiki) 的离线副本（同步于 2026-09-01），在线版以 Wiki 为准。
 
 # Docker Compose 一键部署（推荐）
 
