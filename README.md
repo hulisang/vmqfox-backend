@@ -161,6 +161,21 @@ printf '%s\n' 'YourSecurePassword123' | ./vmqfox-api -init-admin -username admin
 > 安全响应头与 CSP 由 Go 的 `SecurityHeaders` 中间件统一下发。反代必须透传 `X-Forwarded-Proto`，
 > 服务据此决定是否下发 HSTS，同时需在 `VMQ_TRUSTED_PROXY_CIDR` 中登记该代理网段。
 
+### 6. Windows 下运行（预编译 exe）
+
+Release 包 `vmqfox-backend-V3.0.tar.gz` 内含 `vmqfox-api-windows-amd64.exe`（Intel/AMD）与 `vmqfox-api-windows-arm64.exe`（骁龙等 ARM），纯 Go 编译、零运行时依赖：
+
+```powershell
+# 1) 解压后按 CPU 架构选择 exe，重命名为 vmqfox-api.exe，放入独立目录（如 C:\vmqfox）
+# 2) 把包内 env.example 复制到同目录改名 .env，填写数据库、VMQ_TOKEN_SECRET、VMQ_FRONTEND_URL
+# 3) 自动建表 + 初始化管理员（无需导入 schema.sql）
+.\vmqfox-api.exe -init-admin
+# 4) 前台启动验证，浏览器打开 http://127.0.0.1:8080
+.\vmqfox-api.exe
+```
+
+常驻后台推荐用 [NSSM](https://nssm.cc/) 注册为服务（Working Directory 必须设为 `.env` 所在目录）；局域网访问需放行端口：`New-NetFirewallRule -DisplayName vmqfox -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080`。完整步骤见 Wiki [裸机二进制部署 · Windows 下运行](https://github.com/hulisang/vmqfox-backend/wiki/裸机二进制部署)。
+
 ---
 
 ## 🔗 HTTP 接口契约清单
