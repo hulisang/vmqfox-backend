@@ -215,7 +215,7 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 		return CreateOrderResult{}, fail(CodeConfiguration, "系统配置的 notifyUrl 或 returnUrl 无效")
 	}
 
-	incomingDigest := createRequestDigest(strconv.Itoa(int(paymentType)), input.Price, input.Param, notifyURL, returnURL)
+	incomingIdentity := newCreateRequestIdentity(strconv.Itoa(int(paymentType)), input.Price, input.Param, notifyURL, returnURL)
 	now := s.clock.Now()
 	orderID, err := s.orderIDs.NewOrderID(now)
 	if err != nil {
@@ -226,7 +226,7 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 		err = s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
 			existing, findErr := s.orders.FindByPayIDForUpdate(txCtx, input.PayID)
 			if findErr == nil {
-				return replayOrConflict(existing, incomingDigest, &created)
+				return replayOrConflict(existing, incomingIdentity, &created)
 			}
 			if !errors.Is(findErr, port.ErrNotFound) {
 				return wrap(CodeDependency, "检查商户订单号失败", findErr)
@@ -565,17 +565,36 @@ func (s *OrderService) readCloseMinutes(ctx context.Context) (int, error) {
 	return closeMinutes(value), nil
 }
 
-// replayOrConflict 仅在建单摘要一致时重放原订单；字段冲突时不改写已有记录。
-func replayOrConflict(existing order.Order, incomingDigest string, created *order.Order) error {
-	if !payment.SignEqual(createRequestDigestFromOrder(existing), incomingDigest) {
+// replayOrConflict 仅在建单字段逐项一致时重放原订单；字段冲突时不改写已有记录。
+// 不能用未加 framing 的 "k=v&k=v" 拼接摘要：param 含 "&notifyUrl=" 时会和真实 notifyUrl 碰撞。
+func replayOrConflict(existing order.Order, incoming createRequestIdentity, created *order.Order) error {
+	if createRequestIdentityFromOrder(existing) != incoming {
 		return fail(CodeConflict, "商户订单号已存在且请求字段不一致")
 	}
 	*created = existing
 	return nil
 }
 
-func createRequestDigestFromOrder(value order.Order) string {
-	return createRequestDigest(
+type createRequestIdentity struct {
+	typ       string
+	price     string
+	param     string
+	notifyURL string
+	returnURL string
+}
+
+func newCreateRequestIdentity(paymentType, price, param, notifyURL, returnURL string) createRequestIdentity {
+	return createRequestIdentity{
+		typ:       paymentType,
+		price:     price,
+		param:     param,
+		notifyURL: notifyURL,
+		returnURL: returnURL,
+	}
+}
+
+func createRequestIdentityFromOrder(value order.Order) createRequestIdentity {
+	return newCreateRequestIdentity(
 		strconv.Itoa(int(value.Type)),
 		amountText(value.PriceText, value.PriceCents),
 		value.Param,
@@ -584,13 +603,19 @@ func createRequestDigestFromOrder(value order.Order) string {
 	)
 }
 
-// createRequestDigest 从 type/price/param/notifyUrl/returnUrl 确定性计算摘要，不依赖当前系统设置。
+func framedCreateField(name, value string) string {
+	return name + "=" + strconv.Itoa(len(value)) + ":" + value
+}
+
+// createRequestDigest 仅用于测试对照。生产重放走逐字段比较。
 func createRequestDigest(paymentType, price, param, notifyURL, returnURL string) string {
-	canonical := "type=" + paymentType +
-		"&price=" + price +
-		"&param=" + param +
-		"&notifyUrl=" + notifyURL +
-		"&returnUrl=" + returnURL
+	canonical := strings.Join([]string{
+		framedCreateField("type", paymentType),
+		framedCreateField("price", price),
+		framedCreateField("param", param),
+		framedCreateField("notifyUrl", notifyURL),
+		framedCreateField("returnUrl", returnURL),
+	}, "&")
 	sum := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(sum[:])
 }

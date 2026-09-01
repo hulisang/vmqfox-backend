@@ -45,6 +45,14 @@ func TestCreateRequestDigestIsStableAndFieldSensitive(t *testing.T) {
 			t.Errorf("改写 %s 后摘要未变化", field)
 		}
 	}
+
+	collidingParam := "x&notifyUrl=https://a.test/n"
+	collidingNotify := "https://a.test/n&notifyUrl=https://b.test/n"
+	left := createRequestDigest("2", "1.00", collidingParam, "https://b.test/n", "https://merchant.test/return")
+	right := createRequestDigest("2", "1.00", "x", collidingNotify, "https://merchant.test/return")
+	if left == right {
+		t.Fatalf("含分隔符的不同字段不得得到相同摘要：%q", left)
+	}
 }
 
 func TestCreateOrderReplaysIdenticalPayID(t *testing.T) {
@@ -129,6 +137,37 @@ func TestCreateOrderConflictsWhenPayIDFieldsDiffer(t *testing.T) {
 				t.Fatalf("冲突后原订单字段被改写: %+v", orders.created[0])
 			}
 		})
+	}
+}
+
+func TestCreateOrderConflictsWhenAmpersandFramingCollides(t *testing.T) {
+	token := testToken(21)
+	tokens := &scriptedTokens{tokens: []string{token}}
+	orders := &tokenConflictOrders{}
+	service := newCreateOrderService(t, tokens, orders)
+
+	first := createOrderInput(testMerchantKey)
+	first.PayID = "framed-collision-pay-id"
+	first.Param = "x&notifyUrl=https://a.test/n"
+	first.NotifyURL = "https://b.test/n"
+	if _, err := service.Create(context.Background(), signCreateInput(first, testMerchantKey)); err != nil {
+		t.Fatalf("首次建单应成功，实际 err=%v", err)
+	}
+
+	second := createOrderInput(testMerchantKey)
+	second.PayID = first.PayID
+	second.Param = "x"
+	second.NotifyURL = "https://a.test/n&notifyUrl=https://b.test/n"
+	_, err := service.Create(context.Background(), signCreateInput(second, testMerchantKey))
+	code, ok := ErrorCodeOf(err)
+	if !ok || code != CodeConflict {
+		t.Fatalf("分隔符碰撞字段应返回 %s，实际 err=%v code=%v", CodeConflict, err, code)
+	}
+	if len(orders.created) != 1 {
+		t.Fatalf("碰撞请求不得插入第二笔订单，实际 %d 条", len(orders.created))
+	}
+	if orders.created[0].Param != first.Param || orders.created[0].NotifyURL != first.NotifyURL {
+		t.Fatalf("碰撞后原订单字段被改写: %+v", orders.created[0])
 	}
 }
 
