@@ -46,6 +46,7 @@ type RateLimitRule struct {
 type RateLimitConfig struct {
 	Login        RateLimitRule
 	Create       RateLimitRule
+	QueryByPayID RateLimitRule
 	PublicRead   RateLimitRule
 	PublicToken  RateLimitRule
 	QRCode       RateLimitRule
@@ -259,6 +260,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	queryByPayIDRate, err := rateLimitRule("VMQ_RATE_QUERY_BY_PAY_ID_LIMIT", "VMQ_RATE_QUERY_BY_PAY_ID_WINDOW", 30, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
 	publicReadRate, err := rateLimitRule("VMQ_RATE_PUBLIC_READ_LIMIT", "VMQ_RATE_PUBLIC_READ_WINDOW", 60, time.Minute)
 	if err != nil {
 		return Config{}, err
@@ -339,6 +344,7 @@ func Load() (Config, error) {
 		RateLimit: RateLimitConfig{
 			Login:        loginRate,
 			Create:       createRate,
+			QueryByPayID: queryByPayIDRate,
 			PublicRead:   publicReadRate,
 			PublicToken:  publicTokenRate,
 			QRCode:       qrcodeRate,
@@ -425,6 +431,7 @@ func DefaultRateLimitConfig() RateLimitConfig {
 	return RateLimitConfig{
 		Login:        RateLimitRule{Limit: 10, Window: time.Minute},
 		Create:       RateLimitRule{Limit: 30, Window: time.Minute},
+		QueryByPayID: RateLimitRule{Limit: 30, Window: time.Minute},
 		PublicRead:   RateLimitRule{Limit: 60, Window: time.Minute},
 		PublicToken:  RateLimitRule{Limit: 60, Window: time.Minute},
 		QRCode:       RateLimitRule{Limit: 30, Window: time.Minute},

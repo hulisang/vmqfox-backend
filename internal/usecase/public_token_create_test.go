@@ -76,10 +76,18 @@ func createOrderInput(key string) CreateOrderInput {
 
 func newCreateOrderService(t *testing.T, tokens *scriptedTokens, orders *tokenConflictOrders) *OrderService {
 	t.Helper()
+	return newCreateOrderServiceWith(t, tokens, orders, grantingPriceLocks{})
+}
+
+func newCreateOrderServiceWith(t *testing.T, tokens *scriptedTokens, orders port.OrderRepository, locks port.PriceLockRepository) *OrderService {
+	t.Helper()
+	if locks == nil {
+		locks = grantingPriceLocks{}
+	}
 	service, err := NewOrderService(OrderServiceDeps{
 		Transactions: &passthroughTransactions{},
 		Orders:       orders,
-		PriceLocks:   grantingPriceLocks{},
+		PriceLocks:   locks,
 		QRCodes:      emptyQRCodes{},
 		Settings: newMapSettings(map[string]string{
 			setting.MerchantKey:     testMerchantKey,

@@ -9,6 +9,7 @@ import (
 	"github.com/hulisang/vmqfox-backend/internal/domain/order"
 	"github.com/hulisang/vmqfox-backend/internal/domain/payment"
 	"github.com/hulisang/vmqfox-backend/internal/domain/setting"
+	"github.com/hulisang/vmqfox-backend/internal/port"
 )
 
 func signCreateInput(input CreateOrderInput, key string) CreateOrderInput {
@@ -185,6 +186,161 @@ func TestQueryByPayIDRejectsBadSignature(t *testing.T) {
 	code, ok := ErrorCodeOf(err)
 	if !ok || code != CodeInvalidSignature {
 		t.Fatalf("错误签名应返回 %s，实际 err=%v code=%v", CodeInvalidSignature, err, code)
+	}
+}
+
+// payIDRaceOrders 模拟「首次 Find 未命中、Create 撞上已提交的 pay_id、随后 Find 命中」的超时重试竞态。
+type payIDRaceOrders struct {
+	stubOrderRepository
+	winner          order.Order
+	findMisses      int
+	createConflicts int
+	created         []order.Order
+	findCalls       int
+	createCalls     int
+}
+
+func (r *payIDRaceOrders) FindByPayID(_ context.Context, payID string) (order.Order, error) {
+	if r.winner.PayID == payID {
+		return r.winner, nil
+	}
+	return order.Order{}, port.ErrNotFound
+}
+
+func (r *payIDRaceOrders) FindByPayIDForUpdate(_ context.Context, payID string) (order.Order, error) {
+	r.findCalls++
+	if r.findMisses > 0 {
+		r.findMisses--
+		return order.Order{}, port.ErrNotFound
+	}
+	if r.winner.PayID == payID {
+		return r.winner, nil
+	}
+	return order.Order{}, port.ErrNotFound
+}
+
+func (r *payIDRaceOrders) Create(_ context.Context, value order.Order) (order.Order, error) {
+	r.createCalls++
+	if r.createConflicts > 0 {
+		r.createConflicts--
+		return order.Order{}, port.ErrConflict
+	}
+	r.created = append(r.created, value)
+	return value, nil
+}
+
+var _ port.OrderRepository = (*payIDRaceOrders)(nil)
+
+type recordingPriceLocks struct {
+	held     map[string]struct{}
+	acquired []string
+	released []string
+}
+
+func (l *recordingPriceLocks) TryAcquire(_ context.Context, orderID string, _ payment.Type, _ int64) (bool, error) {
+	if l.held == nil {
+		l.held = make(map[string]struct{})
+	}
+	l.held[orderID] = struct{}{}
+	l.acquired = append(l.acquired, orderID)
+	return true, nil
+}
+
+func (l *recordingPriceLocks) ReleaseByOrderID(_ context.Context, orderID string) error {
+	delete(l.held, orderID)
+	l.released = append(l.released, orderID)
+	return nil
+}
+
+func (l *recordingPriceLocks) ReleaseBefore(context.Context, time.Time) error { return nil }
+
+func (l *recordingPriceLocks) liveCount() int { return len(l.held) }
+
+var _ port.PriceLockRepository = (*recordingPriceLocks)(nil)
+
+func raceWinnerOrder(token string, mutate func(*order.Order)) order.Order {
+	value := order.Order{
+		ID:               1,
+		OrderID:          "winner-order",
+		PublicToken:      token,
+		PayID:            "merchant-order-1",
+		Type:             payment.Alipay,
+		PriceCents:       100,
+		ReallyPriceCents: 101,
+		PriceText:        "1.00",
+		ReallyPriceText:  "1.01",
+		State:            order.StatusPending,
+		Param:            "param-1",
+		NotifyURL:        "https://merchant.test/notify",
+		ReturnURL:        "https://merchant.test/return",
+		CreatedAt:        time.Unix(1_700_000_000, 0),
+	}
+	if mutate != nil {
+		mutate(&value)
+	}
+	return value
+}
+
+func TestCreateOrderPayIDRaceReplaysWithoutOrphanLock(t *testing.T) {
+	token := testToken(16)
+	orders := &payIDRaceOrders{
+		winner:          raceWinnerOrder(token, nil),
+		findMisses:      1,
+		createConflicts: 1,
+	}
+	locks := &recordingPriceLocks{}
+	service := newCreateOrderServiceWith(t, &scriptedTokens{tokens: []string{testToken(17)}}, orders, locks)
+
+	result, err := service.Create(context.Background(), createOrderInput(testMerchantKey))
+	if err != nil {
+		t.Fatalf("pay_id 竞态后相同字段应重放，实际 err=%v", err)
+	}
+	if result.Order.PublicToken != token || result.ReallyPrice != "1.01" {
+		t.Fatalf("应返回胜者订单，实际 token=%q reallyPrice=%q", result.Order.PublicToken, result.ReallyPrice)
+	}
+	if result.RedirectURL != "https://pay.example.test/#/payment/"+token {
+		t.Fatalf("重放 redirectUrl 错误: %q", result.RedirectURL)
+	}
+	if len(orders.created) != 0 {
+		t.Fatalf("竞态重放不得再插入订单，实际 %d 条", len(orders.created))
+	}
+	if orders.createCalls != 1 || orders.findCalls != 2 {
+		t.Fatalf("应先 miss 再 conflict 再 hit，实际 find=%d create=%d", orders.findCalls, orders.createCalls)
+	}
+	if locks.liveCount() != 0 {
+		t.Fatalf("回滚后不应残留价格锁，held=%v acquired=%v released=%v", locks.held, locks.acquired, locks.released)
+	}
+	if len(locks.acquired) != 1 || len(locks.released) != 1 {
+		t.Fatalf("失败插入占用的锁必须被释放，acquired=%v released=%v", locks.acquired, locks.released)
+	}
+}
+
+func TestCreateOrderPayIDRaceConflictsWithoutSecondInsert(t *testing.T) {
+	token := testToken(18)
+	orders := &payIDRaceOrders{
+		winner: raceWinnerOrder(token, func(value *order.Order) {
+			value.Param = "param-other"
+			value.NotifyURL = "https://merchant.test/notify-other"
+		}),
+		findMisses:      1,
+		createConflicts: 1,
+	}
+	locks := &recordingPriceLocks{}
+	service := newCreateOrderServiceWith(t, &scriptedTokens{tokens: []string{testToken(19)}}, orders, locks)
+
+	_, err := service.Create(context.Background(), createOrderInput(testMerchantKey))
+	code, ok := ErrorCodeOf(err)
+	if !ok || code != CodeConflict {
+		t.Fatalf("字段冲突应返回 %s，实际 err=%v code=%v", CodeConflict, err, code)
+	}
+	if len(orders.created) != 0 {
+		t.Fatalf("冲突不得插入第二条订单，实际 %d 条", len(orders.created))
+	}
+	if orders.winner.Param != "param-other" || orders.winner.PublicToken != token {
+		t.Fatalf("冲突不得改写胜者订单: %+v", orders.winner)
+	}
+	if locks.liveCount() != 0 {
+		t.Fatalf("冲突路径也不应残留价格锁，held=%v", locks.held)
 	}
 }
 

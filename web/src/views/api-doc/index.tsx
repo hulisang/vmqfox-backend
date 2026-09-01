@@ -52,7 +52,9 @@ export const ApiDocView: React.FC = () => {
               <div>
                 相同 <code>payId</code> 且 <code>type/price/param/notifyUrl/returnUrl</code> 完全一致时，
                 接口幂等重放原订单的 <code>publicToken/reallyPrice/redirectUrl</code>，不会新建订单。
-                任一字段不同则返回冲突，原订单保持不变。
+                任一字段不同则返回 <b>HTTP 200</b> 且 envelope
+                <code>{`{code:409,msg:"商户订单号已存在且请求字段不一致",data:null}`}</code>，
+                原订单保持不变。请按 JSON <code>code</code> 判断，不要只看 HTTP 状态码。
               </div>
             </div>
           </div>
@@ -136,7 +138,8 @@ export const ApiDocView: React.FC = () => {
             </div>
             <div className="text-xs text-muted-foreground leading-relaxed space-y-1.5">
               <div>
-                商户服务端接口。请求参数：<code>payId</code>、<code>t</code>（毫秒时间戳）、<code>sign</code>。
+                商户服务端接口，<b>仅接受 POST</b>（不要把 <code>payId/t/sign</code> 放进查询字符串）。
+                请求参数：<code>payId</code>、<code>t</code>（毫秒时间戳）、<code>sign</code>。
                 不使用管理员 JWT，也不应抓取管理端订单列表。
               </div>
               <div>
@@ -147,6 +150,14 @@ export const ApiDocView: React.FC = () => {
                 响应 <code>data</code> 包含 <code>status</code>、<code>publicToken</code>、<code>type</code>、
                 <code>price</code>、<code>reallyPrice</code>、<code>createdAt</code>、<code>paidAt</code>、
                 <code>closedAt</code>。时间戳为 unix 秒，未发生则为 0。
+                <code>status</code> 是原始订单状态：<code>-1</code> 已关闭、<code>0</code> 未支付、
+                <code>1</code> 已支付、<code>2</code> 通知失败；<code>2</code> 不会像公开
+                <code>/check</code> 那样折成 <code>1</code>。
+              </div>
+              <div>
+                本接口使用独立 IP 限流（默认 30 次/分钟，
+                <code>VMQ_RATE_QUERY_BY_PAY_ID_LIMIT</code> / <code>VMQ_RATE_QUERY_BY_PAY_ID_WINDOW</code>），
+                与建单 <code>VMQ_RATE_CREATE_*</code> 分开计数，避免超时后同时重放建单和查询时挤占同一额度。
               </div>
             </div>
             <div className="p-4 bg-muted/50 rounded-2xl border border-border/70 space-y-2 font-mono text-xs leading-relaxed">

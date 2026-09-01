@@ -2,10 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hulisang/vmqfox-backend/internal/compat/php"
 	"github.com/hulisang/vmqfox-backend/internal/domain/order"
 	"github.com/hulisang/vmqfox-backend/internal/domain/payment"
 	"github.com/hulisang/vmqfox-backend/internal/usecase"
@@ -115,6 +118,27 @@ func TestQueryByPayIDResponseIncludesMerchantRecoveryFields(t *testing.T) {
 	}
 	if closedAt, ok := data["closedAt"].(float64); !ok || closedAt != 0 {
 		t.Fatalf("未关闭订单 closedAt 应为 0，实际: %s", raw)
+	}
+}
+
+func TestWriteOrderErrorConflictUsesEnvelope409OnHTTP200(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/order/create", nil)
+	writeOrderError(ctx, &usecase.Error{
+		Code:    usecase.CodeConflict,
+		Message: "商户订单号已存在且请求字段不一致",
+	})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("冲突应保持 HTTP 200，实际 %d", recorder.Code)
+	}
+	var envelope php.Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("解析冲突响应失败: %v body=%s", err, recorder.Body.Bytes())
+	}
+	if envelope.Code != 409 || envelope.Msg != "商户订单号已存在且请求字段不一致" || envelope.Data != nil {
+		t.Fatalf("冲突 envelope 应为 code=409 且 data=null，实际 %+v", envelope)
 	}
 }
 

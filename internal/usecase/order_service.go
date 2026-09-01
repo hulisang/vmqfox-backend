@@ -23,6 +23,9 @@ const (
 	publicTokenCreateRetryMax = 8
 )
 
+// errRetryCreateAfterPayIDConflict 让当前事务回滚已占用的价格锁，再由外层循环按 payId 重放。
+var errRetryCreateAfterPayIDConflict = errors.New("pay_id 唯一冲突，回滚后重放")
+
 type CreateOrderInput struct {
 	PayID     string
 	Param     string
@@ -269,18 +272,19 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 				return port.ErrPublicTokenConflict
 			}
 			if errors.Is(err, port.ErrConflict) {
-				existing, findErr := s.orders.FindByPayIDForUpdate(txCtx, input.PayID)
-				if findErr == nil {
-					return replayOrConflict(existing, incomingDigest, &created)
+				// 唯一 pay_id 冲突发生在已占用金额之后。必须让事务回滚（并显式释放，
+				// 以便无真实事务的测试替身也不会留下孤儿锁），再由外层 Find 重放。
+				if relErr := s.priceLocks.ReleaseByOrderID(txCtx, orderID); relErr != nil {
+					return wrap(CodeDependency, "释放订单金额失败", relErr)
 				}
-				return fail(CodeConflict, "创建订单冲突")
+				return errRetryCreateAfterPayIDConflict
 			}
 			if err != nil {
 				return wrap(CodeDependency, "创建订单失败", err)
 			}
 			return nil
 		})
-		if errors.Is(err, port.ErrPublicTokenConflict) {
+		if errors.Is(err, port.ErrPublicTokenConflict) || errors.Is(err, errRetryCreateAfterPayIDConflict) {
 			continue
 		}
 		if err != nil {
@@ -290,6 +294,9 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 	}
 	if errors.Is(err, port.ErrPublicTokenConflict) {
 		return CreateOrderResult{}, fail(CodeDependency, "生成唯一公开订单令牌失败")
+	}
+	if errors.Is(err, errRetryCreateAfterPayIDConflict) {
+		return CreateOrderResult{}, fail(CodeConflict, "创建订单冲突")
 	}
 
 	redirectURL := ""

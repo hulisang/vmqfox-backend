@@ -263,9 +263,13 @@ func registerAPI(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
 		middleware.WriteGuardAlways(deps.RuntimeMode),
 		h.Orders.CreateAPI,
 	)
-	// 商户服务端只读查询：签名鉴权，不使用管理员 JWT。
-	public.Any("/order/query-by-pay-id",
-		middleware.NewIPRateLimit(deps.RateLimit.Create, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+	// 商户服务端只读查询：仅 POST，签名鉴权，不使用管理员 JWT。
+	queryByPayIDLimit := deps.RateLimit.QueryByPayID
+	if queryByPayIDLimit.Limit < 1 {
+		queryByPayIDLimit = deps.RateLimit.Create
+	}
+	public.POST("/order/query-by-pay-id",
+		middleware.NewIPRateLimit(queryByPayIDLimit, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
 		h.Orders.QueryByPayIDAPI,
 	)
 	public.GET("/order/get/:id",

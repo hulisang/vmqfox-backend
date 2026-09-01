@@ -45,3 +45,5 @@ pnpm-debug.log*
 # 静态资源嵌入构建产物（通过 build 生成，由 .gitkeep 占位以支持 embed 编译）
 /internal/http/static/out/*
 !/internal/http/static/out/.gitkeep
+
+.ace-tool/
