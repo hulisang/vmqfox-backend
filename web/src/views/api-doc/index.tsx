@@ -49,6 +49,11 @@ export const ApiDocView: React.FC = () => {
                 请引导买家访问 <code>redirectUrl</code>，不要自行拼接内部订单号。
                 传入 <code>isHtml=1</code> 时后端直接返回跳转页面。
               </div>
+              <div>
+                相同 <code>payId</code> 且 <code>type/price/param/notifyUrl/returnUrl</code> 完全一致时，
+                接口幂等重放原订单的 <code>publicToken/reallyPrice/redirectUrl</code>，不会新建订单。
+                任一字段不同则返回冲突，原订单保持不变。
+              </div>
             </div>
           </div>
 
@@ -118,6 +123,38 @@ export const ApiDocView: React.FC = () => {
                 回跳地址只能通过 <code>return-url</code> 接口获取，且服务端仅在订单已支付时才签发；
                 公开订单响应本身不包含回跳地址、透传参数与通知地址。
               </div>
+            </div>
+          </div>
+
+          {/* 5. 按 payId 恢复查询 */}
+          <div className="space-y-3">
+            <h3 className="font-bold text-foreground flex items-center gap-1.5">
+              <ArrowLeftRight className="size-4 text-primary" /> 5. 按商户订单号查询
+            </h3>
+            <div className="p-3 bg-muted/40 rounded-2xl border border-border/70 font-mono text-xs">
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold">POST</span> /api/order/query-by-pay-id
+            </div>
+            <div className="text-xs text-muted-foreground leading-relaxed space-y-1.5">
+              <div>
+                商户服务端接口。请求参数：<code>payId</code>、<code>t</code>（毫秒时间戳）、<code>sign</code>。
+                不使用管理员 JWT，也不应抓取管理端订单列表。
+              </div>
+              <div>
+                用于建单请求已成功但客户端超时、尚未拿到 <code>publicToken</code> 时的恢复查询。
+                时间戳窗口与监控端签名 TTL（<code>VMQ_MONITOR_SIGN_TTL</code>，默认 5 分钟）相同。
+              </div>
+              <div>
+                响应 <code>data</code> 包含 <code>status</code>、<code>publicToken</code>、<code>type</code>、
+                <code>price</code>、<code>reallyPrice</code>、<code>createdAt</code>、<code>paidAt</code>、
+                <code>closedAt</code>。时间戳为 unix 秒，未发生则为 0。
+              </div>
+            </div>
+            <div className="p-4 bg-muted/50 rounded-2xl border border-border/70 space-y-2 font-mono text-xs leading-relaxed">
+              <div className="text-muted-foreground">// 按 payId 查询签名域，字段顺序固定</div>
+              <div className="text-primary font-semibold break-all">
+                canonical = "payId=" + payId + "&amp;t=" + t
+              </div>
+              <div>sign = HMAC_SHA256(canonical, key) 的小写十六进制</div>
             </div>
           </div>
         </CardContent>

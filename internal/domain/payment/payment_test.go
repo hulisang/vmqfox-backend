@@ -41,6 +41,11 @@ func TestSignV2GoldenVectors(t *testing.T) {
 			actual: PushSignV2(vectorType, vectorPrice, vectorTimestamp, vectorKey),
 			want:   "61174e2503aec9c2ffe8430ba322d03b8e3c5f46c3d08f29e69ee35d0b34a51e",
 		},
+		{
+			name:   "query-by-pay-id",
+			actual: QueryByPayIDSignV2(vectorPayID, vectorTimestamp, vectorKey),
+			want:   "1bf791a356959d89bccc6227c97982d98b5625e96d0d24fdd6382421a7f12373",
+		},
 	}
 
 	for _, item := range cases {
@@ -79,6 +84,19 @@ func TestCreateSignV2DiffersFromLegacy(t *testing.T) {
 	}
 	if len(v1) != 32 {
 		t.Fatalf("v1 签名应为 32 位十六进制，实际长度 %d", len(v1))
+	}
+}
+
+func TestQueryByPayIDSignV2CoversPayIDAndTimestamp(t *testing.T) {
+	base := QueryByPayIDSignV2(vectorPayID, vectorTimestamp, vectorKey)
+	if QueryByPayIDSignV2("OTHER-PAY-ID", vectorTimestamp, vectorKey) == base {
+		t.Fatal("改写 payId 后签名未变化")
+	}
+	if QueryByPayIDSignV2(vectorPayID, "1773500000001", vectorKey) == base {
+		t.Fatal("改写时间戳后签名未变化")
+	}
+	if QueryByPayIDSignV2(vectorPayID, vectorTimestamp, vectorKey+"x") == base {
+		t.Fatal("改写密钥后签名未变化")
 	}
 }
 

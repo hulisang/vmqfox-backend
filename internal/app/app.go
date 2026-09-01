@@ -106,6 +106,7 @@ func New(cfg config.Config, db *gorm.DB, tokenParser *auth.TokenService, logger 
 		OrderIDs:     system.OrderIDGenerator{},
 		PublicTokens: publicTokens,
 		FrontendURL:  cfg.Server.FrontendURL,
+		SignTTL:      cfg.Jobs.MonitorSignTTL,
 	})
 	if err != nil {
 		return nil, err

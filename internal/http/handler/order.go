@@ -19,6 +19,7 @@ import (
 
 type OrderManager interface {
 	Create(context.Context, usecase.CreateOrderInput) (usecase.CreateOrderResult, error)
+	QueryByPayID(context.Context, usecase.QueryByPayIDInput) (usecase.QueryByPayIDResult, error)
 	Get(context.Context, string) (usecase.OrderView, error)
 	List(context.Context, usecase.ListOrdersInput) (usecase.OrderPageView, error)
 	Statistics(context.Context) (usecase.OrderStatisticsView, error)
@@ -35,6 +36,7 @@ type OrderManager interface {
 
 type OrderHandlers struct {
 	CreateAPI        gin.HandlerFunc
+	QueryByPayIDAPI  gin.HandlerFunc
 	GetAPI           gin.HandlerFunc
 	ListAPI          gin.HandlerFunc
 	StatisticsAPI    gin.HandlerFunc
@@ -53,6 +55,7 @@ type OrderHandlers struct {
 func newOrderHandlers(service OrderManager) OrderHandlers {
 	return OrderHandlers{
 		CreateAPI:        createOrderHandler(service),
+		QueryByPayIDAPI:  queryOrderByPayIDHandler(service),
 		GetAPI:           getOrderAPIHandler(service),
 		ListAPI:          listOrdersAPIHandler(service),
 		StatisticsAPI:    orderStatisticsAPIHandler(service),
@@ -99,6 +102,17 @@ type PublicOrderCheck struct {
 	RemainingSeconds int64 `json:"remainingSeconds"`
 }
 
+type QueryByPayIDResponse struct {
+	Status      int    `json:"status"`
+	PublicToken string `json:"publicToken"`
+	Type        int    `json:"type"`
+	Price       string `json:"price"`
+	ReallyPrice string `json:"reallyPrice"`
+	CreatedAt   int64  `json:"createdAt"`
+	PaidAt      int64  `json:"paidAt"`
+	ClosedAt    int64  `json:"closedAt"`
+}
+
 func createOrderHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {
@@ -128,6 +142,30 @@ func createOrderHandler(service OrderManager) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", apiCreateOrderData(result)))
+	}
+}
+
+func queryOrderByPayIDHandler(service OrderManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if service == nil {
+			writeOrderUnavailable(c)
+			return
+		}
+		params, err := scalarRequestParams(c)
+		if err != nil {
+			writeOrderBindingError(c)
+			return
+		}
+		result, err := service.QueryByPayID(c.Request.Context(), usecase.QueryByPayIDInput{
+			PayID:     params["payId"],
+			Timestamp: params["t"],
+			Sign:      params["sign"],
+		})
+		if err != nil {
+			writeOrderError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, php.NewEnvelope(200, "成功", apiQueryByPayIDData(result)))
 	}
 }
 
@@ -429,6 +467,19 @@ func apiOrderViewData(result usecase.OrderView) PublicOrderView {
 	}
 }
 
+func apiQueryByPayIDData(result usecase.QueryByPayIDResult) QueryByPayIDResponse {
+	return QueryByPayIDResponse{
+		Status:      int(result.Status),
+		PublicToken: result.PublicToken,
+		Type:        int(result.Type),
+		Price:       result.Price,
+		ReallyPrice: result.ReallyPrice,
+		CreatedAt:   unixOrZero(result.CreatedAt),
+		PaidAt:      unixOrZero(result.PaidAt),
+		ClosedAt:    unixOrZero(result.ClosedAt),
+	}
+}
+
 func apiCheckOrderData(result usecase.CheckOrderResult) PublicOrderCheck {
 	state := result.State
 	if state == order.StatusNotifyFailed {
@@ -570,8 +621,11 @@ func writeOrderError(c *gin.Context, err error) {
 		return
 	}
 	code := 400
-	if appError.Code == usecase.CodeDependency {
+	switch appError.Code {
+	case usecase.CodeDependency:
 		code = 500
+	case usecase.CodeConflict:
+		code = 409
 	}
 	c.JSON(http.StatusOK, php.NewEnvelope(code, appError.Message, nil))
 }

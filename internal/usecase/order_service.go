@@ -41,6 +41,23 @@ type CreateOrderResult struct {
 	RedirectURL    string
 }
 
+type QueryByPayIDInput struct {
+	PayID     string
+	Timestamp string
+	Sign      string
+}
+
+type QueryByPayIDResult struct {
+	Status      order.Status
+	PublicToken string
+	Type        payment.Type
+	Price       string
+	ReallyPrice string
+	CreatedAt   time.Time
+	PaidAt      time.Time
+	ClosedAt    time.Time
+}
+
 type OrderView struct {
 	Order            order.Order
 	StateText        string
@@ -89,6 +106,7 @@ type OrderServiceDeps struct {
 	OrderIDs     port.OrderIDGenerator
 	PublicTokens port.PublicTokenGenerator
 	FrontendURL  string
+	SignTTL      time.Duration
 }
 
 type OrderService struct {
@@ -102,12 +120,17 @@ type OrderService struct {
 	orderIDs     port.OrderIDGenerator
 	publicTokens port.PublicTokenGenerator
 	frontendURL  string
+	signTTL      time.Duration
 }
 
 func NewOrderService(deps OrderServiceDeps) (*OrderService, error) {
 	if deps.Transactions == nil || deps.Orders == nil || deps.PriceLocks == nil || deps.QRCodes == nil ||
 		deps.Settings == nil || deps.Outbox == nil || deps.Clock == nil || deps.OrderIDs == nil || deps.PublicTokens == nil {
 		return nil, errors.New("订单用例依赖不完整")
+	}
+	signTTL := deps.SignTTL
+	if signTTL <= 0 {
+		signTTL = defaultMonitorSignTTL
 	}
 	return &OrderService{
 		transactions: deps.Transactions,
@@ -120,6 +143,7 @@ func NewOrderService(deps OrderServiceDeps) (*OrderService, error) {
 		orderIDs:     deps.OrderIDs,
 		publicTokens: deps.PublicTokens,
 		frontendURL:  strings.TrimRight(deps.FrontendURL, "/"),
+		signTTL:      signTTL,
 	}, nil
 }
 
@@ -176,10 +200,19 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 		}
 		return CreateOrderResult{}, fail(CodeInvalidSignature, "签名错误")
 	}
-	if settings[setting.MonitorStateKey] != "1" {
-		return CreateOrderResult{}, fail(CodeMonitorOffline, "监控端状态异常，请检查")
+	notifyURL := input.NotifyURL
+	if notifyURL == "" {
+		notifyURL = settings[setting.NotifyURLKey]
+	}
+	returnURL := input.ReturnURL
+	if returnURL == "" {
+		returnURL = settings[setting.ReturnURLKey]
+	}
+	if !validCallbackURL(notifyURL) || !validCallbackURL(returnURL) {
+		return CreateOrderResult{}, fail(CodeConfiguration, "系统配置的 notifyUrl 或 returnUrl 无效")
 	}
 
+	incomingDigest := createRequestDigest(strconv.Itoa(int(paymentType)), input.Price, input.Param, notifyURL, returnURL)
 	now := s.clock.Now()
 	orderID, err := s.orderIDs.NewOrderID(now)
 	if err != nil {
@@ -187,16 +220,21 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 	}
 	var created order.Order
 	for attempt := 0; attempt < publicTokenCreateRetryMax; attempt++ {
-		publicToken, tokenErr := newPublicToken(s.publicTokens)
-		if tokenErr != nil {
-			return CreateOrderResult{}, wrap(CodeDependency, "生成公开订单令牌失败", tokenErr)
-		}
-
 		err = s.transactions.WithinTransaction(ctx, func(txCtx context.Context) error {
-			if _, findErr := s.orders.FindByPayIDForUpdate(txCtx, input.PayID); findErr == nil {
-				return fail(CodeDuplicateOrder, "商户订单号已存在，请勿重复提交")
-			} else if !errors.Is(findErr, port.ErrNotFound) {
+			existing, findErr := s.orders.FindByPayIDForUpdate(txCtx, input.PayID)
+			if findErr == nil {
+				return replayOrConflict(existing, incomingDigest, &created)
+			}
+			if !errors.Is(findErr, port.ErrNotFound) {
 				return wrap(CodeDependency, "检查商户订单号失败", findErr)
+			}
+			if settings[setting.MonitorStateKey] != "1" {
+				return fail(CodeMonitorOffline, "监控端状态异常，请检查")
+			}
+
+			publicToken, tokenErr := newPublicToken(s.publicTokens)
+			if tokenErr != nil {
+				return wrap(CodeDependency, "生成公开订单令牌失败", tokenErr)
 			}
 
 			reallyPriceCents, lockErr := s.acquirePrice(txCtx, orderID, paymentType, priceCents, settings[setting.PriceAdjustKey])
@@ -207,18 +245,6 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 			payURL, isAuto, payURLErr := s.resolvePayURL(txCtx, paymentType, reallyPriceCents, settings)
 			if payURLErr != nil {
 				return payURLErr
-			}
-
-			notifyURL := input.NotifyURL
-			if notifyURL == "" {
-				notifyURL = settings[setting.NotifyURLKey]
-			}
-			returnURL := input.ReturnURL
-			if returnURL == "" {
-				returnURL = settings[setting.ReturnURLKey]
-			}
-			if !validCallbackURL(notifyURL) || !validCallbackURL(returnURL) {
-				return fail(CodeConfiguration, "系统配置的 notifyUrl 或 returnUrl 无效")
 			}
 
 			value := order.Order{
@@ -243,6 +269,10 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 				return port.ErrPublicTokenConflict
 			}
 			if errors.Is(err, port.ErrConflict) {
+				existing, findErr := s.orders.FindByPayIDForUpdate(txCtx, input.PayID)
+				if findErr == nil {
+					return replayOrConflict(existing, incomingDigest, &created)
+				}
 				return fail(CodeConflict, "创建订单冲突")
 			}
 			if err != nil {
@@ -273,6 +303,43 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 		ReallyPrice:    order.FormatCents(created.ReallyPriceCents),
 		TimeoutMinutes: closeMinutes(settings[setting.CloseMinutesKey]),
 		RedirectURL:    redirectURL,
+	}, nil
+}
+
+func (s *OrderService) QueryByPayID(ctx context.Context, input QueryByPayIDInput) (QueryByPayIDResult, error) {
+	if input.PayID == "" || input.Timestamp == "" || input.Sign == "" {
+		return QueryByPayIDResult{}, fail(CodeInvalidArgument, "参数不完整")
+	}
+	merchantKey, err := s.settings.Get(ctx, setting.MerchantKey)
+	if errors.Is(err, port.ErrNotFound) || merchantKey == "" {
+		return QueryByPayIDResult{}, fail(CodeConfiguration, "系统未配置密钥")
+	}
+	if err != nil {
+		return QueryByPayIDResult{}, wrap(CodeDependency, "读取系统密钥失败", err)
+	}
+	if !validQueryByPayIDSign(input, merchantKey) {
+		return QueryByPayIDResult{}, fail(CodeInvalidSignature, "签名错误")
+	}
+	if err := s.checkQueryTimestamp(input.Timestamp, s.clock.Now()); err != nil {
+		return QueryByPayIDResult{}, err
+	}
+
+	value, err := s.orders.FindByPayID(ctx, input.PayID)
+	if errors.Is(err, port.ErrNotFound) {
+		return QueryByPayIDResult{}, fail(CodeNotFound, "订单不存在")
+	}
+	if err != nil {
+		return QueryByPayIDResult{}, wrap(CodeDependency, "查询订单失败", err)
+	}
+	return QueryByPayIDResult{
+		Status:      value.State,
+		PublicToken: value.PublicToken,
+		Type:        value.Type,
+		Price:       amountText(value.PriceText, value.PriceCents),
+		ReallyPrice: amountText(value.ReallyPriceText, value.ReallyPriceCents),
+		CreatedAt:   value.CreatedAt,
+		PaidAt:      value.PaidAt,
+		ClosedAt:    value.ClosedAt,
 	}, nil
 }
 
@@ -489,6 +556,56 @@ func (s *OrderService) readCloseMinutes(ctx context.Context) (int, error) {
 		return 0, wrap(CodeDependency, "读取订单超时设置失败", err)
 	}
 	return closeMinutes(value), nil
+}
+
+// replayOrConflict 仅在建单摘要一致时重放原订单；字段冲突时不改写已有记录。
+func replayOrConflict(existing order.Order, incomingDigest string, created *order.Order) error {
+	if !payment.SignEqual(createRequestDigestFromOrder(existing), incomingDigest) {
+		return fail(CodeConflict, "商户订单号已存在且请求字段不一致")
+	}
+	*created = existing
+	return nil
+}
+
+func createRequestDigestFromOrder(value order.Order) string {
+	return createRequestDigest(
+		strconv.Itoa(int(value.Type)),
+		amountText(value.PriceText, value.PriceCents),
+		value.Param,
+		value.NotifyURL,
+		value.ReturnURL,
+	)
+}
+
+// createRequestDigest 从 type/price/param/notifyUrl/returnUrl 确定性计算摘要，不依赖当前系统设置。
+func createRequestDigest(paymentType, price, param, notifyURL, returnURL string) string {
+	canonical := "type=" + paymentType +
+		"&price=" + price +
+		"&param=" + param +
+		"&notifyUrl=" + notifyURL +
+		"&returnUrl=" + returnURL
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:])
+}
+
+func validQueryByPayIDSign(input QueryByPayIDInput, key string) bool {
+	expected := payment.QueryByPayIDSignV2(input.PayID, input.Timestamp, key)
+	return payment.SignEqual(input.Sign, expected)
+}
+
+func (s *OrderService) checkQueryTimestamp(raw string, now time.Time) error {
+	moment, ok := parseMonitorTimestamp(raw)
+	if !ok {
+		return fail(CodeInvalidArgument, "时间戳格式错误")
+	}
+	skew := now.Sub(moment)
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew > s.signTTL {
+		return fail(CodeStaleTimestamp, "请求时间戳超出允许窗口")
+	}
+	return nil
 }
 
 func validCreateSign(input CreateOrderInput, key string) bool {

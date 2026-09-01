@@ -99,6 +99,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	if h.Orders.CreateAPI == nil {
 		h.Orders.CreateAPI = h.APIError
 	}
+	if h.Orders.QueryByPayIDAPI == nil {
+		h.Orders.QueryByPayIDAPI = h.APIError
+	}
 	if h.Orders.GetAPI == nil {
 		h.Orders.GetAPI = h.APIError
 	}
@@ -259,6 +262,11 @@ func registerAPI(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
 		middleware.NewIPRateLimit(deps.RateLimit.Create, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
 		middleware.WriteGuardAlways(deps.RuntimeMode),
 		h.Orders.CreateAPI,
+	)
+	// 商户服务端只读查询：签名鉴权，不使用管理员 JWT。
+	public.Any("/order/query-by-pay-id",
+		middleware.NewIPRateLimit(deps.RateLimit.Create, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),
+		h.Orders.QueryByPayIDAPI,
 	)
 	public.GET("/order/get/:id",
 		middleware.NewIPRateLimit(deps.RateLimit.PublicRead, deps.RateLimit.TrustedCIDRs, deps.RateLimit.TrustedIPs),

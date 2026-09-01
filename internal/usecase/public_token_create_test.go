@@ -26,6 +26,11 @@ func (r *tokenConflictOrders) Create(_ context.Context, value order.Order) (orde
 		r.conflicts--
 		return order.Order{}, port.ErrPublicTokenConflict
 	}
+	for _, existing := range r.created {
+		if existing.PayID == value.PayID {
+			return order.Order{}, port.ErrConflict
+		}
+	}
 	r.nextID++
 	value.ID = r.nextID
 	r.created = append(r.created, value)
@@ -39,6 +44,19 @@ func (r *tokenConflictOrders) FindByPublicToken(_ context.Context, token string)
 		}
 	}
 	return order.Order{}, port.ErrNotFound
+}
+
+func (r *tokenConflictOrders) FindByPayID(_ context.Context, payID string) (order.Order, error) {
+	for _, value := range r.created {
+		if value.PayID == payID {
+			return value, nil
+		}
+	}
+	return order.Order{}, port.ErrNotFound
+}
+
+func (r *tokenConflictOrders) FindByPayIDForUpdate(ctx context.Context, payID string) (order.Order, error) {
+	return r.FindByPayID(ctx, payID)
 }
 
 var _ port.OrderRepository = (*tokenConflictOrders)(nil)

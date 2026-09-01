@@ -45,6 +45,11 @@ func HeartbeatSignV2(timestamp, key string) string {
 	return hmacHex(key, "t="+timestamp)
 }
 
+// QueryByPayIDSignV2 是商户按 payId 只读查询的签名。时间戳字段名与挂机端一致为 t。
+func QueryByPayIDSignV2(payID, timestamp, key string) string {
+	return hmacHex(key, "payId="+payID+"&t="+timestamp)
+}
+
 func PushSignV2(paymentType, price, timestamp, key string) string {
 	return hmacHex(key,
 		"type="+paymentType+

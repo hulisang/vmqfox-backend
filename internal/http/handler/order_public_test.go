@@ -78,23 +78,64 @@ func TestPublicOrderCheckWhitelist(t *testing.T) {
 	}
 }
 
+func TestQueryByPayIDResponseIncludesMerchantRecoveryFields(t *testing.T) {
+	view := apiQueryByPayIDData(usecase.QueryByPayIDResult{
+		Status:      order.StatusPaid,
+		PublicToken: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Type:        payment.Wechat,
+		Price:       "10.00",
+		ReallyPrice: "10.01",
+		CreatedAt:   time.Unix(1_700_000_000, 0),
+		PaidAt:      time.Unix(1_700_000_100, 0),
+	})
+
+	raw, err := json.Marshal(view)
+	if err != nil {
+		t.Fatalf("编码按 payId 查询响应失败: %v", err)
+	}
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		t.Fatalf("解析按 payId 查询响应失败: %v", err)
+	}
+	for _, key := range []string{"status", "publicToken", "type", "price", "reallyPrice", "createdAt", "paidAt", "closedAt"} {
+		if _, exists := data[key]; !exists {
+			t.Errorf("商户查询响应缺少 %q，实际: %s", key, raw)
+		}
+	}
+	for _, key := range []string{"notifyUrl", "returnUrl", "param", "orderId", "order_id"} {
+		if _, exists := data[key]; exists {
+			t.Errorf("商户查询响应不应包含 %q，实际: %s", key, raw)
+		}
+	}
+	if data["publicToken"] != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
+		t.Fatalf("商户查询必须返回 publicToken 以便超时恢复，实际: %s", raw)
+	}
+	if paidAt, ok := data["paidAt"].(float64); !ok || paidAt != 1_700_000_100 {
+		t.Fatalf("paidAt 应为 unix 秒，实际: %s", raw)
+	}
+	if closedAt, ok := data["closedAt"].(float64); !ok || closedAt != 0 {
+		t.Fatalf("未关闭订单 closedAt 应为 0，实际: %s", raw)
+	}
+}
+
 // TestNewOrderHandlers 防止改造 DTO 时遗漏原有路由处理器装配。
 func TestNewOrderHandlers(t *testing.T) {
 	handlers := newOrderHandlers(nil)
 	for name, routeHandler := range map[string]gin.HandlerFunc{
-		"create":         handlers.CreateAPI,
-		"get":            handlers.GetAPI,
-		"list":           handlers.ListAPI,
-		"statistics":     handlers.StatisticsAPI,
-		"detail":         handlers.DetailAPI,
-		"check":          handlers.CheckAPI,
-		"return-url":     handlers.ReturnURLAPI,
-		"close":          handlers.CloseAPI,
-		"delete":         handlers.DeleteAPI,
-		"delete-last":    handlers.DeleteLastAPI,
-		"expired":        handlers.ExpiredAPI,
-		"delete-expired": handlers.DeleteExpiredAPI,
-		"reissue":        handlers.ReissueAPI,
+		"create":          handlers.CreateAPI,
+		"query-by-pay-id": handlers.QueryByPayIDAPI,
+		"get":             handlers.GetAPI,
+		"list":            handlers.ListAPI,
+		"statistics":      handlers.StatisticsAPI,
+		"detail":          handlers.DetailAPI,
+		"check":           handlers.CheckAPI,
+		"return-url":      handlers.ReturnURLAPI,
+		"close":           handlers.CloseAPI,
+		"delete":          handlers.DeleteAPI,
+		"delete-last":     handlers.DeleteLastAPI,
+		"expired":         handlers.ExpiredAPI,
+		"delete-expired":  handlers.DeleteExpiredAPI,
+		"reissue":         handlers.ReissueAPI,
 	} {
 		if routeHandler == nil {
 			t.Errorf("订单处理器 %s 未装配", name)
