@@ -223,9 +223,9 @@ export const QrcodesView: React.FC<QrcodesViewProps> = ({ type }) => {
                     </TableCell>
                     <TableCell>
                       <Switch
-                        checked={row.state === 1}
+                        checked={row.state === 0}
                         onCheckedChange={(checked) =>
-                          toggleStateMutation.mutate({ id: row.id, state: checked ? 1 : 0 })
+                          toggleStateMutation.mutate({ id: row.id, state: checked ? 0 : 1 })
                         }
                       />
                     </TableCell>
