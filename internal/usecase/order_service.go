@@ -13,6 +13,7 @@ import (
 
 	"github.com/hulisang/vmqfox-backend/internal/domain/order"
 	"github.com/hulisang/vmqfox-backend/internal/domain/payment"
+	"github.com/hulisang/vmqfox-backend/internal/domain/qrcode"
 	"github.com/hulisang/vmqfox-backend/internal/domain/setting"
 	"github.com/hulisang/vmqfox-backend/internal/port"
 )
@@ -459,6 +460,7 @@ func (s *OrderService) acquirePrice(ctx context.Context, orderID string, payment
 	return 0, fail(CodeOverloaded, "订单超出负荷，请稍后重试")
 }
 
+// resolvePayURL 按「精确金额固定码 → 码库通用码 → 系统设置兜底码」的顺序选择收款地址。
 func (s *OrderService) resolvePayURL(ctx context.Context, paymentType payment.Type, amountCents int64, settings map[string]string) (string, bool, error) {
 	fixed, err := s.qrcodes.FindEnabledByAmount(ctx, paymentType, amountCents)
 	if err == nil && fixed.PayURL != "" {
@@ -466,6 +468,15 @@ func (s *OrderService) resolvePayURL(ctx context.Context, paymentType payment.Ty
 	}
 	if err != nil && !errors.Is(err, port.ErrNotFound) {
 		return "", false, wrap(CodeDependency, "查询支付二维码失败", err)
+	}
+
+	// 通用码不含金额，付款人需手动输入，因此与系统设置兜底码一样标记为 isAuto。
+	generic, err := s.qrcodes.FindEnabledByAmount(ctx, paymentType, qrcode.AnyAmountCents)
+	if err == nil && generic.PayURL != "" {
+		return generic.PayURL, true, nil
+	}
+	if err != nil && !errors.Is(err, port.ErrNotFound) {
+		return "", false, wrap(CodeDependency, "查询通用支付二维码失败", err)
 	}
 
 	key := setting.AlipayPayURLKey
