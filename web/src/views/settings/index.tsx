@@ -5,8 +5,67 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CopyButton } from '@/components/common/copy-button'
-import { Settings, Key, Shield, RefreshCw, Save } from 'lucide-react'
+import { QRCodeView } from '@/components/common/qr-code-view'
+import { decodeQRFromFile } from '@/lib/decode-qr'
+import { Settings, Key, Shield, RefreshCw, Save, QrCode, Upload } from 'lucide-react'
 import { toast } from 'sonner'
+
+interface FallbackQrFieldProps {
+  label: string
+  payType: 1 | 2
+  placeholder: string
+  value: string
+  onChange: (value: string) => void
+}
+
+// 兜底收款码输入项：支持手动填写或上传图片识别，有内容时展示预览
+const FallbackQrField: React.FC<FallbackQrFieldProps> = ({ label, payType, placeholder, value, onChange }) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    // 重置选择，保证重复上传同一张图片也能触发识别
+    e.target.value = ''
+    if (!file) return
+
+    const content = await decodeQRFromFile(file)
+    if (content) {
+      onChange(content)
+      toast.success('二维码识别成功')
+    } else {
+      toast.error('未能识别出有效的二维码内容，请手动输入')
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-muted-foreground">{label}</label>
+        <Button
+          variant="ghost"
+          size="sm"
+          asChild
+          className="h-7 px-2 text-xs rounded-xl hover:bg-primary/10 hover:text-primary cursor-pointer"
+        >
+          <label>
+            <Upload className="size-3" />
+            上传识别
+            <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+          </label>
+        </Button>
+      </div>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="font-mono text-xs"
+      />
+      {value && (
+        <div className="pt-2 flex justify-center">
+          <QRCodeView url={value} size={120} payType={payType} />
+        </div>
+      )}
+    </div>
+  )
+}
 
 export const SettingsView: React.FC = () => {
   const queryClient = useQueryClient()
@@ -159,9 +218,33 @@ export const SettingsView: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, payQf: e.target.value })}
                   className="flex h-10 w-full rounded-2xl border border-input bg-background/80 px-3.5 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <option value="1">递减区分金额 (0.01, 0.02...)</option>
-                  <option value="2">递增区分金额 (0.01, 0.02...)</option>
+                  <option value="1">递增区分金额 (+0.01, +0.02...)</option>
+                  <option value="2">递减区分金额 (-0.01, -0.02...)</option>
                 </select>
+              </div>
+            </div>
+
+            {/* 默认兜底收款码 */}
+            <div className="pt-4 border-t border-border/60">
+              <div className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
+                <QrCode className="size-3.5 text-primary" /> 默认收款码（兜底）
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">码库中没有匹配的固定金额码或通用码时使用</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FallbackQrField
+                  label="微信默认收款码 (wxpay)"
+                  payType={1}
+                  placeholder="wxp://..."
+                  value={formData.wxpay || ''}
+                  onChange={(value) => setFormData((prev) => ({ ...prev, wxpay: value }))}
+                />
+                <FallbackQrField
+                  label="支付宝默认收款码 (zfbpay)"
+                  payType={2}
+                  placeholder="https://qr.alipay.com/..."
+                  value={formData.zfbpay || ''}
+                  onChange={(value) => setFormData((prev) => ({ ...prev, zfbpay: value }))}
+                />
               </div>
             </div>
 
