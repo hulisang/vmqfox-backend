@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Plus, Trash2, QrCode, Eye, Upload } from 'lucide-react'
 import { toast } from 'sonner'
-import jsQR from 'jsqr'
+import { decodeQRFromFile } from '@/lib/decode-qr'
 
 interface QrcodesViewProps {
   type: 'wechat' | 'alipay'
@@ -86,32 +86,17 @@ export const QrcodesView: React.FC<QrcodesViewProps> = ({ type }) => {
   })
 
   // 图片解析二维码
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const img = new Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return
-        canvas.width = img.width
-        canvas.height = img.height
-        ctx.drawImage(img, 0, 0)
-        const imageData = ctx.getImageData(0, 0, img.width, img.height)
-        const code = jsQR(imageData.data, imageData.width, imageData.height)
-        if (code) {
-          setAddPayUrl(code.data)
-          toast.success('二维码识别成功')
-        } else {
-          toast.error('未能识别出有效的二维码内容，请手动输入')
-        }
-      }
-      img.src = event.target?.result as string
+    const content = await decodeQRFromFile(file)
+    if (content) {
+      setAddPayUrl(content)
+      toast.success('二维码识别成功')
+    } else {
+      toast.error('未能识别出有效的二维码内容，请手动输入')
     }
-    reader.readAsDataURL(file)
   }
 
   return (

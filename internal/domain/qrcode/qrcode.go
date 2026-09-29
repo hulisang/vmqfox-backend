@@ -14,6 +14,9 @@ const (
 	StateDisabled State = 1
 )
 
+// AnyAmountCents 是通用任意金额收款码的金额标记，精确金额未命中时作为码库内的兜底。
+const AnyAmountCents int64 = 0
+
 func (s State) Valid() bool {
 	return s == StateEnabled || s == StateDisabled
 }

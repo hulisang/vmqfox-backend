@@ -120,6 +120,20 @@ func (emptyQRCodes) SetState(context.Context, int64, qrcode.State, qrcode.State)
 
 func (emptyQRCodes) Delete(context.Context, int64) (bool, error) { return false, nil }
 
+// amountQRCodes 按支付类型与金额（分）返回已启用二维码，用于覆盖选码优先级。
+type amountQRCodes struct {
+	emptyQRCodes
+	codes map[payment.Type]map[int64]qrcode.QRCode
+}
+
+func (r amountQRCodes) FindEnabledByAmount(_ context.Context, typ payment.Type, amountCents int64) (qrcode.QRCode, error) {
+	value, ok := r.codes[typ][amountCents]
+	if !ok {
+		return qrcode.QRCode{}, port.ErrNotFound
+	}
+	return value, nil
+}
+
 // grantingPriceLocks 总是成功占用金额，把测试聚焦在公开令牌上。
 type grantingPriceLocks struct{}
 
@@ -224,6 +238,7 @@ func (stubOrderRepository) DeleteExpiredBefore(context.Context, time.Time) (int6
 var (
 	_ port.OrderRepository        = stubOrderRepository{}
 	_ port.QRCodeRepository       = emptyQRCodes{}
+	_ port.QRCodeRepository       = amountQRCodes{}
 	_ port.PriceLockRepository    = grantingPriceLocks{}
 	_ port.OutboxRepository       = (*recordingOutbox)(nil)
 	_ port.PaymentEventRepository = newEventsRepository{}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -120,6 +121,12 @@ func createOrderHandler(service OrderManager) gin.HandlerFunc {
 			ReturnURL: params["returnUrl"],
 		})
 		if err != nil {
+			// 浏览器直连下单时返回可读错误页，避免用户看到原始 JSON。
+			if params["isHtml"] == "1" {
+				_, message := orderErrorEnvelope(err)
+				writePaymentErrorHTML(c, message)
+				return
+			}
 			writeOrderError(c, err)
 			return
 		}
@@ -563,15 +570,42 @@ func writeOrderBindingError(c *gin.Context) {
 	c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
 }
 
-func writeOrderError(c *gin.Context, err error) {
+// writePaymentErrorHTML 输出 isHtml=1 下单失败的错误页；页面不含脚本，错误信息统一转义。
+func writePaymentErrorHTML(c *gin.Context, message string) {
+	c.Header("Content-Type", php.ContentTypeHTML)
+	c.Header("Cache-Control", "no-store")
+	c.String(http.StatusOK, `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>下单失败</title>
+  <style>
+    body { background:#f5f5f5; font-family:Arial,sans-serif; text-align:center; padding-top:100px; }
+    .title { color:#333; font-size:20px; font-weight:bold; }
+    .text { margin-top:16px; color:#666; font-size:16px; }
+  </style>
+</head>
+<body>
+  <div class="title">下单失败</div>
+  <div class="text">%s</div>
+</body>
+</html>`, html.EscapeString(message))
+}
+
+// orderErrorEnvelope 把用例错误映射为兼容 PHP 响应的状态码与文案，供 JSON 与 HTML 两种输出共用。
+func orderErrorEnvelope(err error) (int, string) {
 	var appError *usecase.Error
 	if !errors.As(err, &appError) {
-		c.JSON(http.StatusOK, php.NewEnvelope(500, "服务器处理请求时发生错误", nil))
-		return
+		return 500, "服务器处理请求时发生错误"
 	}
-	code := 400
 	if appError.Code == usecase.CodeDependency {
-		code = 500
+		return 500, appError.Message
 	}
-	c.JSON(http.StatusOK, php.NewEnvelope(code, appError.Message, nil))
+	return 400, appError.Message
+}
+
+func writeOrderError(c *gin.Context, err error) {
+	code, message := orderErrorEnvelope(err)
+	c.JSON(http.StatusOK, php.NewEnvelope(code, message, nil))
 }
