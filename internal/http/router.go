@@ -120,6 +120,9 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	if h.Orders.CloseAPI == nil {
 		h.Orders.CloseAPI = h.APIError
 	}
+	if h.Orders.ReissueAPI == nil {
+		h.Orders.ReissueAPI = h.APIError
+	}
 	if h.Orders.BatchCloseAPI == nil {
 		h.Orders.BatchCloseAPI = h.APIError
 	}

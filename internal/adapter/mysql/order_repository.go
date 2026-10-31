@@ -83,6 +83,9 @@ func (r *OrderRepository) List(ctx context.Context, filter port.OrderFilter) (po
 	if filter.State != nil {
 		query = query.Where("state = ?", int(*filter.State))
 	}
+	if filter.Type != nil {
+		query = query.Where("payment_type = ?", int(*filter.Type))
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

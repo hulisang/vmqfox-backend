@@ -194,8 +194,20 @@ func listOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 			state = &parsed
 		}
 
+		var paymentType *payment.Type
+		if rawType := strings.TrimSpace(c.Query("type")); rawType != "" {
+			value, parseErr := strconv.Atoi(rawType)
+			parsed := payment.Type(value)
+			if parseErr != nil || !parsed.Valid() {
+				c.JSON(http.StatusOK, php.NewEnvelope(400, "支付方式无效", nil))
+				return
+			}
+			paymentType = &parsed
+		}
+
 		result, err := service.List(c.Request.Context(), usecase.ListOrdersInput{
 			State: state,
+			Type:  paymentType,
 			Page:  page,
 			Limit: limit,
 		})
