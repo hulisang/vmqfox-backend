@@ -73,8 +73,10 @@ func (c ServerConfig) Address() string {
 }
 
 type DatabaseConfig struct {
-	Host            string
-	Port            int
+	Host string
+	Port int
+	// Socket 非空时通过 Unix Socket 连接 MySQL，Host/Port 不再生效。
+	Socket          string
 	Name            string
 	User            string
 	Password        string
@@ -132,6 +134,7 @@ func LoadDatabase() (DatabaseConfig, error) {
 	return DatabaseConfig{
 		Host:            first([]string{"VMQ_DB_HOST", "DB_HOSTNAME"}, "127.0.0.1"),
 		Port:            databasePort,
+		Socket:          strings.TrimSpace(first([]string{"VMQ_DB_SOCKET", "DB_SOCKET"}, "")),
 		Name:            first([]string{"VMQ_DB_NAME", "DB_DATABASE"}, "vmq"),
 		User:            first([]string{"VMQ_DB_USER", "DB_USERNAME"}, "root"),
 		Password:        first([]string{"VMQ_DB_PASSWORD", "DB_PASSWORD"}, ""),
@@ -306,6 +309,7 @@ func Load() (Config, error) {
 		Database: DatabaseConfig{
 			Host:            first([]string{"VMQ_DB_HOST", "DB_HOSTNAME"}, "127.0.0.1"),
 			Port:            databasePort,
+			Socket:          strings.TrimSpace(first([]string{"VMQ_DB_SOCKET", "DB_SOCKET"}, "")),
 			Name:            first([]string{"VMQ_DB_NAME", "DB_DATABASE"}, "vmq"),
 			User:            first([]string{"VMQ_DB_USER", "DB_USERNAME"}, "root"),
 			Password:        first([]string{"VMQ_DB_PASSWORD", "DB_PASSWORD"}, ""),

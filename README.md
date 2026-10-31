@@ -36,6 +36,7 @@
 | `VMQ_TOKEN_TTL` | `24h` | JWT 凭据有效时长 |
 | `VMQ_DB_HOST` | `127.0.0.1` | MySQL/MariaDB 主机地址 |
 | `VMQ_DB_PORT` | `3306` | MySQL/MariaDB 端口 |
+| `VMQ_DB_SOCKET` | 空 | Unix Socket 路径（如 `/var/run/mysqld/mysqld.sock`）。留空走 TCP；填值后优先走 Socket，`VMQ_DB_HOST` / `VMQ_DB_PORT` 不再生效 |
 | `VMQ_DB_USER` | `vmqgo` | 数据库用户名 |
 | `VMQ_DB_PASSWORD` | *必填* | 数据库密码 |
 | `VMQ_DB_NAME` | `vmqgo` | 数据库名 |
