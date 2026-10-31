@@ -120,6 +120,15 @@ func NewRouter(deps RouterDeps) *gin.Engine {
 	if h.Orders.CloseAPI == nil {
 		h.Orders.CloseAPI = h.APIError
 	}
+	if h.Orders.BatchCloseAPI == nil {
+		h.Orders.BatchCloseAPI = h.APIError
+	}
+	if h.Orders.BatchReissueAPI == nil {
+		h.Orders.BatchReissueAPI = h.APIError
+	}
+	if h.Orders.BatchDeleteAPI == nil {
+		h.Orders.BatchDeleteAPI = h.APIError
+	}
 	if h.Monitor.HeartbeatAPI == nil {
 		h.Monitor.HeartbeatAPI = h.APIError
 	}
@@ -250,6 +259,9 @@ func registerAPI(r *gin.Engine, h handler.Handlers, deps RouterDeps) {
 	management.POST("/order/expired", h.Orders.ExpiredAPI)
 	management.DELETE("/order/expired", h.Orders.DeleteExpiredAPI)
 	management.POST("/order/reissue/:id", h.Orders.ReissueAPI)
+	management.POST("/order/batch/close", h.Orders.BatchCloseAPI)
+	management.POST("/order/batch/reissue", h.Orders.BatchReissueAPI)
+	management.POST("/order/batch/delete", h.Orders.BatchDeleteAPI)
 	management.POST("/config/save", h.UpdateSettings)
 	management.POST("/config/monitor", h.UpdateMonitor)
 
