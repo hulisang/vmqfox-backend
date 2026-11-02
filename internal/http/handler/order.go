@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"html"
+	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -385,19 +387,35 @@ func reissueOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 }
 
 // maxBatchOrderIDs 限制单次批量操作数量，避免单个请求长时间占用事务资源。
-const maxBatchOrderIDs = 500
+const maxBatchOrderIDs = 100
 
 type batchOrderIDsRequest struct {
 	IDs []int64 `json:"ids"`
 }
 
 // bindBatchOrderIDs 统一解析与校验批量操作的订单 ID 列表。
+// 与 scalarRequestParams 保持一致：仅接受 JSON 请求体，且拒绝 JSON 之后的尾部多余内容。
 func bindBatchOrderIDs(c *gin.Context) ([]int64, bool) {
 	if c.Request.Body != nil {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxScalarRequestBody)
 	}
+	mediaType, _, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json") {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
+		return nil, false
+	}
+	if c.Request.Body == nil {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
+		return nil, false
+	}
 	var payload batchOrderIDsRequest
-	if err := json.NewDecoder(c.Request.Body).Decode(&payload); err != nil {
+	decoder := json.NewDecoder(c.Request.Body)
+	if err := decoder.Decode(&payload); err != nil {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
+		return nil, false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
 		return nil, false
 	}
@@ -405,17 +423,25 @@ func bindBatchOrderIDs(c *gin.Context) ([]int64, bool) {
 		c.JSON(http.StatusOK, php.NewEnvelope(400, "请选择要操作的订单", nil))
 		return nil, false
 	}
-	if len(payload.IDs) > maxBatchOrderIDs {
-		c.JSON(http.StatusOK, php.NewEnvelope(400, "单次最多操作 "+strconv.Itoa(maxBatchOrderIDs)+" 个订单", nil))
-		return nil, false
-	}
+	ids := make([]int64, 0, len(payload.IDs))
+	seen := make(map[int64]struct{}, len(payload.IDs))
 	for _, id := range payload.IDs {
 		if id <= 0 {
 			c.JSON(http.StatusOK, php.NewEnvelope(400, "订单ID无效", nil))
 			return nil, false
 		}
+		// 去重后逐条执行，避免同一订单被重复操作。
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
 	}
-	return payload.IDs, true
+	if len(ids) > maxBatchOrderIDs {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "单次最多操作 "+strconv.Itoa(maxBatchOrderIDs)+" 个订单", nil))
+		return nil, false
+	}
+	return ids, true
 }
 
 // batchOrderOperation 逐条执行批量操作并汇总成功/失败结果，单条失败不影响其余订单。
