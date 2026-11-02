@@ -51,7 +51,6 @@ type OrderView struct {
 
 type ListOrdersInput struct {
 	State *order.Status
-	Type  *payment.Type
 	Page  int
 	Limit int
 }
@@ -142,7 +141,7 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 		return CreateOrderResult{}, fail(CodeInvalidArgument, "参数不完整")
 	}
 
-	typeNumber, err := strconv.Atoi(input.Type)
+	typeNumber, err := strconv.ParseInt(input.Type, 10, 8)
 	if err != nil || !payment.Type(typeNumber).Valid() {
 		return CreateOrderResult{}, fail(CodeInvalidArgument, "支付类型错误")
 	}
@@ -310,12 +309,8 @@ func (s *OrderService) List(ctx context.Context, input ListOrdersInput) (OrderPa
 	if input.State != nil && !input.State.Valid() {
 		return OrderPageView{}, fail(CodeInvalidArgument, "订单状态无效")
 	}
-	if input.Type != nil && !input.Type.Valid() {
-		return OrderPageView{}, fail(CodeInvalidArgument, "支付类型无效")
-	}
 	page, err := s.orders.List(ctx, port.OrderFilter{
 		State: input.State,
-		Type:  input.Type,
 		Page:  input.Page,
 		Limit: input.Limit,
 	})
