@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"html"
+	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -48,6 +50,9 @@ type OrderHandlers struct {
 	ExpiredAPI       gin.HandlerFunc
 	DeleteExpiredAPI gin.HandlerFunc
 	ReissueAPI       gin.HandlerFunc
+	BatchCloseAPI    gin.HandlerFunc
+	BatchReissueAPI  gin.HandlerFunc
+	BatchDeleteAPI   gin.HandlerFunc
 }
 
 // newOrderHandlers 统一装配订单路由处理器，避免公开令牌改造遗漏原有管理端处理器。
@@ -66,6 +71,9 @@ func newOrderHandlers(service OrderManager) OrderHandlers {
 		ExpiredAPI:       expireOrdersAPIHandler(service),
 		DeleteExpiredAPI: deleteExpiredOrdersAPIHandler(service),
 		ReissueAPI:       reissueOrderAPIHandler(service),
+		BatchCloseAPI:    batchCloseOrdersAPIHandler(service),
+		BatchReissueAPI:  batchReissueOrdersAPIHandler(service),
+		BatchDeleteAPI:   batchDeleteOrdersAPIHandler(service),
 	}
 }
 
@@ -179,7 +187,7 @@ func listOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 
 		var state *order.Status
 		if rawState := strings.TrimSpace(c.Query("state")); rawState != "" {
-			value, parseErr := strconv.Atoi(rawState)
+			value, parseErr := strconv.ParseInt(rawState, 10, 8)
 			parsed := order.Status(value)
 			if parseErr != nil || !parsed.Valid() {
 				c.JSON(http.StatusOK, php.NewEnvelope(400, "订单状态无效", nil))
@@ -378,6 +386,118 @@ func reissueOrderAPIHandler(service OrderManager) gin.HandlerFunc {
 	}
 }
 
+// maxBatchOrderIDs 限制单次批量操作数量，避免单个请求长时间占用事务资源。
+const maxBatchOrderIDs = 100
+
+type batchOrderIDsRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+// bindBatchOrderIDs 统一解析与校验批量操作的订单 ID 列表。
+// 与 scalarRequestParams 保持一致：仅接受 JSON 请求体，且拒绝 JSON 之后的尾部多余内容。
+func bindBatchOrderIDs(c *gin.Context) ([]int64, bool) {
+	if c.Request.Body != nil {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxScalarRequestBody)
+	}
+	mediaType, _, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json") {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
+		return nil, false
+	}
+	if c.Request.Body == nil {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
+		return nil, false
+	}
+	var payload batchOrderIDsRequest
+	decoder := json.NewDecoder(c.Request.Body)
+	if err := decoder.Decode(&payload); err != nil {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
+		return nil, false
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "请求参数格式错误", nil))
+		return nil, false
+	}
+	if len(payload.IDs) == 0 {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "请选择要操作的订单", nil))
+		return nil, false
+	}
+	ids := make([]int64, 0, len(payload.IDs))
+	seen := make(map[int64]struct{}, len(payload.IDs))
+	for _, id := range payload.IDs {
+		if id <= 0 {
+			c.JSON(http.StatusOK, php.NewEnvelope(400, "订单ID无效", nil))
+			return nil, false
+		}
+		// 去重后逐条执行，避免同一订单被重复操作。
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) > maxBatchOrderIDs {
+		c.JSON(http.StatusOK, php.NewEnvelope(400, "单次最多操作 "+strconv.Itoa(maxBatchOrderIDs)+" 个订单", nil))
+		return nil, false
+	}
+	return ids, true
+}
+
+// batchOrderOperation 逐条执行批量操作并汇总成功/失败结果，单条失败不影响其余订单。
+func batchOrderOperation(c *gin.Context, successMessage string, operation func(context.Context, int64) error) {
+	ids, ok := bindBatchOrderIDs(c)
+	if !ok {
+		return
+	}
+	successCount := 0
+	failures := make([]gin.H, 0)
+	for _, id := range ids {
+		if err := operation(c.Request.Context(), id); err != nil {
+			_, message := orderErrorEnvelope(err)
+			failures = append(failures, gin.H{"id": id, "message": message})
+			continue
+		}
+		successCount++
+	}
+	c.JSON(http.StatusOK, php.NewEnvelope(200, successMessage, gin.H{
+		"successCount": successCount,
+		"failedCount":  len(failures),
+		"failures":     failures,
+	}))
+}
+
+func batchCloseOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if service == nil {
+			writeOrderUnavailable(c)
+			return
+		}
+		batchOrderOperation(c, "批量关闭订单完成", service.CloseByID)
+	}
+}
+
+func batchReissueOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if service == nil {
+			writeOrderUnavailable(c)
+			return
+		}
+		batchOrderOperation(c, "批量补单完成", service.ReissueByID)
+	}
+}
+
+func batchDeleteOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if service == nil {
+			writeOrderUnavailable(c)
+			return
+		}
+		batchOrderOperation(c, "批量删除订单完成", service.DeleteByID)
+	}
+}
+
+// deleteExpiredOrdersAPIHandler 清理已过期订单，返回本次删除的订单数量。
 func deleteExpiredOrdersAPIHandler(service OrderManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if service == nil {

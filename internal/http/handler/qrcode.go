@@ -90,7 +90,7 @@ func listQRCodesHandler(service QRCodeManager, fixedType *payment.Type) gin.Hand
 
 		filterType := fixedType
 		if filterType == nil && strings.TrimSpace(c.Query("type")) != "" {
-			value, parseErr := strconv.Atoi(c.Query("type"))
+			value, parseErr := strconv.ParseInt(c.Query("type"), 10, 8)
 			parsed := payment.Type(value)
 			if parseErr != nil || !parsed.Valid() {
 				c.JSON(http.StatusOK, php.NewEnvelope(400, "支付类型错误", nil))
@@ -135,7 +135,7 @@ func createQRCodeHandler(service QRCodeManager, fixedType *payment.Type) gin.Han
 		if fixedType != nil {
 			paymentType = *fixedType
 		} else {
-			value, parseErr := strconv.Atoi(params["type"])
+			value, parseErr := strconv.ParseInt(params["type"], 10, 8)
 			paymentType = payment.Type(value)
 			if parseErr != nil || !paymentType.Valid() {
 				c.JSON(http.StatusOK, php.NewEnvelope(400, "支付类型错误", nil))
@@ -180,7 +180,7 @@ func setQRCodeStateHandler(service QRCodeManager) gin.HandlerFunc {
 			c.JSON(http.StatusOK, php.NewEnvelope(400, "状态参数不能为空", nil))
 			return
 		}
-		stateNumber, err := strconv.Atoi(params["state"])
+		stateNumber, err := strconv.ParseInt(params["state"], 10, 8)
 		state := qrcode.State(stateNumber)
 		if err != nil || !state.Valid() {
 			c.JSON(http.StatusOK, php.NewEnvelope(400, "二维码状态无效", nil))

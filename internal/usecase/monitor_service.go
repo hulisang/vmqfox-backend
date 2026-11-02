@@ -130,7 +130,7 @@ func (s *MonitorService) Push(ctx context.Context, input PaymentPushInput) (Paym
 	if input.Timestamp == "" || input.Type == "" || input.Price == "" || input.Sign == "" {
 		return PaymentPushResult{}, fail(CodeInvalidArgument, "缺少必要参数")
 	}
-	typeNumber, err := strconv.Atoi(input.Type)
+	typeNumber, err := strconv.ParseInt(input.Type, 10, 8)
 	if err != nil || !payment.Type(typeNumber).Valid() {
 		return PaymentPushResult{}, fail(CodeInvalidArgument, "支付类型错误")
 	}

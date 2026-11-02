@@ -41,6 +41,9 @@ func CanTransition(from, to Status) bool {
 		return to == StatusPaid || to == StatusClosed
 	case StatusPaid:
 		return to == StatusNotifyFailed
+	case StatusClosed:
+		// 超时自动关闭的过期订单仍可由运营人工确认到账，补单后恢复为已支付。
+		return to == StatusPaid
 	case StatusNotifyFailed:
 		return to == StatusPaid
 	default:
@@ -48,8 +51,9 @@ func CanTransition(from, to Status) bool {
 	}
 }
 
+// CanReissue 定义人工补单可操作的状态：未支付订单与已过期（已关闭）订单。
 func CanReissue(status Status) bool {
-	return status == StatusPending || status == StatusClosed || status == StatusNotifyFailed
+	return status == StatusPending || status == StatusClosed
 }
 
 var ErrInvalidAmount = errors.New("金额格式无效")

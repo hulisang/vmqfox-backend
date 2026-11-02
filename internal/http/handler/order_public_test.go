@@ -95,6 +95,9 @@ func TestNewOrderHandlers(t *testing.T) {
 		"expired":        handlers.ExpiredAPI,
 		"delete-expired": handlers.DeleteExpiredAPI,
 		"reissue":        handlers.ReissueAPI,
+		"batch-close":    handlers.BatchCloseAPI,
+		"batch-reissue":  handlers.BatchReissueAPI,
+		"batch-delete":   handlers.BatchDeleteAPI,
 	} {
 		if routeHandler == nil {
 			t.Errorf("订单处理器 %s 未装配", name)

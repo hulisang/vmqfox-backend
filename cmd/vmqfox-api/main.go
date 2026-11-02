@@ -102,6 +102,7 @@ func main() {
 		cfg.Database.Password,
 		cfg.Database.Host,
 		cfg.Database.Port,
+		cfg.Database.Socket,
 		cfg.Database.Name,
 		map[string]string{"charset": cfg.Database.Charset},
 	)
@@ -202,6 +203,7 @@ func runInitDB() error {
 		cfg.Database.Password,
 		cfg.Database.Host,
 		cfg.Database.Port,
+		cfg.Database.Socket,
 		cfg.Database.Name,
 		map[string]string{"charset": cfg.Database.Charset},
 	)
@@ -230,6 +232,7 @@ func runPublicTokenMigration() error {
 		database.Password,
 		database.Host,
 		database.Port,
+		database.Socket,
 		database.Name,
 		map[string]string{"charset": database.Charset},
 	)
@@ -261,6 +264,7 @@ func runAdminInit(ctx context.Context, opts AdminInitOptions) error {
 		cfg.Database.Password,
 		cfg.Database.Host,
 		cfg.Database.Port,
+		cfg.Database.Socket,
 		cfg.Database.Name,
 		map[string]string{"charset": cfg.Database.Charset},
 	)

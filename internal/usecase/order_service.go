@@ -141,7 +141,7 @@ func (s *OrderService) Create(ctx context.Context, input CreateOrderInput) (Crea
 		return CreateOrderResult{}, fail(CodeInvalidArgument, "参数不完整")
 	}
 
-	typeNumber, err := strconv.Atoi(input.Type)
+	typeNumber, err := strconv.ParseInt(input.Type, 10, 8)
 	if err != nil || !payment.Type(typeNumber).Valid() {
 		return CreateOrderResult{}, fail(CodeInvalidArgument, "支付类型错误")
 	}
@@ -704,7 +704,7 @@ func (s *OrderService) ReissueByID(ctx context.Context, id int64) error {
 			return wrap(CodeDependency, "查询订单失败", err)
 		}
 
-		if value.State == order.StatusPaid || value.State == order.StatusNotifyFailed {
+		if !order.CanReissue(value.State) {
 			return fail(CodeInvalidState, "订单已付款，请勿重复补单")
 		}
 

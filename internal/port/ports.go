@@ -71,6 +71,7 @@ type SettingRepository interface {
 
 type OrderFilter struct {
 	State *order.Status
+	Type  *payment.Type
 	Page  int
 	Limit int
 }

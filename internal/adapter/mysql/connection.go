@@ -13,7 +13,8 @@ import (
 )
 
 // DSN 使用驱动官方配置编码，避免凭据或连接参数中的特殊字符破坏连接串。
-func DSN(user, password, host string, port int, database string, params map[string]string) string {
+// socket 非空时优先通过 Unix Socket 连接，此时 host 与 port 会被忽略。
+func DSN(user, password, host string, port int, socket, database string, params map[string]string) string {
 	if params == nil {
 		params = make(map[string]string)
 	}
@@ -21,11 +22,18 @@ func DSN(user, password, host string, port int, database string, params map[stri
 		params["charset"] = "utf8mb4"
 	}
 
+	network := "tcp"
+	addr := fmt.Sprintf("%s:%d", host, port)
+	if socket != "" {
+		network = "unix"
+		addr = socket
+	}
+
 	return (&drivermysql.Config{
 		User:                 user,
 		Passwd:               password,
-		Net:                  "tcp",
-		Addr:                 fmt.Sprintf("%s:%d", host, port),
+		Net:                  network,
+		Addr:                 addr,
 		DBName:               database,
 		Params:               params,
 		ParseTime:            true,

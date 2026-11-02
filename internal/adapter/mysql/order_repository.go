@@ -197,7 +197,8 @@ func (r *OrderRepository) Transition(ctx context.Context, id int64, from, to ord
 
 	updates := map[string]any{"state": int(to)}
 	switch {
-	case from == order.StatusPending && to == order.StatusPaid:
+	// 未支付与已过期（已关闭）订单在人工补单时都要补记到账时间。
+	case to == order.StatusPaid && (from == order.StatusPending || from == order.StatusClosed):
 		updates["paid_at"] = changedAt
 	case to == order.StatusClosed:
 		updates["closed_at"] = changedAt
