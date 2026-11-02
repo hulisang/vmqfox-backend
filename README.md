@@ -202,6 +202,9 @@ Release 包 `vmqfox-backend-V3.0.tar.gz` 内含 `vmqfox-api-windows-amd64.exe`�
   * `DELETE /api/order/expired` - **删除过期订单**：物理批量删除所有超时未付/已关闭的订单（Pending 级联释锁）。
   * `DELETE /api/order/last` - 物理清理历史归档旧订单（24小时前）。
   * `POST /api/order/reissue/:id` - **人工补单**：事务内强制改变订单为已支付、释放金额锁并向 Outbox 压入重签通知。
+  * `POST /api/order/batch/close` - **批量关闭订单**：请求体 `{"ids":[1,2,...]}`，单次最多 100 条，自动去重后逐条执行并汇总返回 `successCount` / `failedCount` / `failures`。
+  * `POST /api/order/batch/reissue` - **批量补单**：按 `ids` 逐条执行人工补单，单条失败不影响其余订单。
+  * `POST /api/order/batch/delete` - **批量删除订单**：按 `ids` 逐条物理删除（Pending 状态级联释锁），返回结构与批量关闭一致。
 * **系统配置**：
   * `GET /api/config/settings` - 获取系统收款配置、有效期、区分额度方式等。
   * `POST /api/config/settings` (及别名 `POST /api/config/save`) - 保存/更新系统全局配置与管理员密码。
